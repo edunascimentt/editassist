@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run ea:*)",
+      "Bash(uv sync:*)",
+      "Bash(ffmpeg:*)",
+      "Bash(ffprobe:*)",
+      "Read(projects/**)",
+      "Edit(projects/**)",
+      "Write(projects/**)",
+      "Edit(memory/**)",
+      "Write(memory/**)"
+    ]
+  }
+}

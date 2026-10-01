@@ -1,0 +1,13 @@
+# personal / generated
+memory/
+projects/*
+!projects/.gitkeep
+.env
+.venv/
+.cache/
+__pycache__/
+*.pyc
+remotion/node_modules/
+remotion/out/
+.DS_Store
+Thumbs.db
