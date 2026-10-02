@@ -13,5 +13,5 @@ description: Word-level transcription of every clip with audio (faster-whisper).
 - If it prints "speech-like audio with no words at [...]", Whisper dropped a passage: listen there
   (render a 5 s preview) and re-run that clip with `--force --model large-v3`.
 - After transcribing, skim the `.txt`. Fix recurring proper-noun errors (brands, names) by noting
-  them in `memory/preferences.md` under "Vocabulary" so captions use the right spelling; correct the
+  them in `<memory>/preferences.md` under "Vocabulary" so captions use the right spelling; correct the
   word in the json too when it will appear on screen.

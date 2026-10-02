@@ -5,8 +5,9 @@ import os
 import platform
 import shutil
 import subprocess
+from pathlib import Path
 
-from .project import MEMORY, ROOT
+from .project import ROOT, memory_dir
 
 
 def doctor() -> bool:
@@ -34,7 +35,11 @@ def doctor() -> bool:
         row("faster-whisper", True, "installed (model downloads on first transcribe)")
     except Exception as e:  # noqa: BLE001
         row("faster-whisper", False, str(e))
-    row("memory/", MEMORY.exists(), "personal preferences (created by setup from memory.template/)")
+    mem = memory_dir()
+    on_os = (Path.home() / ".memory-os" / "memory") in mem.parents
+    row("editing memory", (mem / "preferences.md").exists(),
+        f"{'memory-os global tier' if on_os else 'local fallback'}: {mem} (`uv run ea memory --init`)")
+    row("project memory", (ROOT / ".claude" / "_memory" / "_index.md").exists(), ".claude/_memory/ (memory-os project tier)")
     for k, why in (("ELEVENLABS_API_KEY", "voiceover / sfx / music"), ("PEXELS_API_KEY", "stock b-roll search")):
         row(k, bool(os.environ.get(k)), why, required=False)
     hf = bool(os.environ.get("HF_API_KEY_ID") and os.environ.get("HF_API_KEY_SECRET")) or os.environ.get("HF_KEY", "").count(":") == 1

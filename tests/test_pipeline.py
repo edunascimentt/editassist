@@ -198,3 +198,26 @@ def test_resolve_mcp_launcher_paths(monkeypatch, tmp_path):
     assert resolve_mcp.serve([]) == 1  # not installed there: clean error, nothing on stdout
     cfg = json.loads((ROOT / ".mcp.json").read_text())
     assert cfg["mcpServers"]["davinci-resolve"]["args"][-1] == "resolve-mcp"
+
+
+def test_editing_memory_tiers(monkeypatch, tmp_path):
+    import editassist.project as P
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(P.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.delenv("EA_MEMORY_DIR", raising=False)
+    local = tmp_path / "repo_memory"
+    monkeypatch.setattr(P, "LOCAL_MEMORY", local)
+    # no memory-os: falls back to the gitignored repo folder
+    assert P.memory_dir() == local
+    P.init_memory()
+    (local / "preferences.md").write_text("- Silence cut min 0.3s (2026-10-02)\n", encoding="utf-8")
+    # memory-os appears later: taste moves to the private global tier, written content carried over
+    (home / ".memory-os" / "memory").mkdir(parents=True)
+    (home / ".memory-os" / "memory" / "_index.md").write_text("# index\n", encoding="utf-8")
+    res = P.init_memory()
+    dst = home / ".memory-os" / "memory" / "editassist"
+    assert P.memory_dir() == dst and "preferences.md" in res["migrated"]
+    assert "0.3s" in (dst / "preferences.md").read_text(encoding="utf-8")
+    assert "editassist/" in (home / ".memory-os" / "memory" / "_index.md").read_text(encoding="utf-8")

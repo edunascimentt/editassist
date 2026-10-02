@@ -18,5 +18,5 @@ description: Captions synced to the EDITED timeline. SRT for the NLE, styled ASS
   put it on V2 (see motion-graphics).
 - Speakers: after the speakers skill, caption lines never mix two people.
 - Other languages: translate-dub skill (`--lines` + `--name`).
-- Check spelling of names/brands against `memory/preferences.md` "Vocabulary"; fix in
+- Check spelling of names/brands against `<memory>/preferences.md` "Vocabulary"; fix in
   `work/transcripts/<id>.json` and re-run.

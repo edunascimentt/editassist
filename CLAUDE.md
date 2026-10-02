@@ -9,15 +9,17 @@ does the media work.
 user prompt + media ──► you (Claude Code / Codex) ──► skills (recipes) ──► `ea` tools
                          ▲        │                                        ffmpeg · Whisper · ElevenLabs · Higgsfield
                          │        ▼                                        Pexels · Remotion
-                     memory/   timeline.json ──► ea export ──► Resolve / Premiere / AE
+                     memory    timeline.json ──► ea export ──► Resolve / Premiere / AE
                          ▲        │
                          └── feedback ◄── preview / NLE review
 ```
 
 ## Every task
 
-1. **Read `memory/`** first: `preferences.md` (how this user edits) and `styles/` (named looks).
-   If `memory/` is missing, tell the user to run setup. Preferences override the defaults below.
+1. **Read the editing memory** first. `<memory>` in skills = the folder `uv run ea memory` prints
+   (memory-os global tier `~/.memory-os/memory/editassist/`, private to this user and shared by all
+   their accounts; fallback: gitignored `memory/`). Read `preferences.md` (how this user edits) and
+   `styles/` (named looks). Missing: `uv run ea memory --init`. Preferences override the defaults below.
 2. **Find or create the project**: `uv run ea new <name>` makes `projects/<name>/`; the user drops
    media into `projects/<name>/input/`. Never modify files in `input/`.
 3. **Pick skills** for the request and follow them (each `SKILL.md` lists its commands and checks).
@@ -27,7 +29,7 @@ user prompt + media ──► you (Claude Code / Codex) ──► skills (recipe
 4. **Show, then ask**: render a preview (`ea render <p>`), run `ea qa`, give the user the paths and
    a short summary of decisions (what you cut and why). Ask for feedback; apply it with the review
    skill.
-5. **Learn**: when the user corrects you or states a preference, write it to `memory/` (see
+5. **Learn**: when the user corrects you or states a preference, write it to `<memory>` (see
    style-profile skill). Don't wait for the end of the task.
 
 ## Rules
@@ -56,5 +58,23 @@ user prompt + media ──► you (Claude Code / Codex) ──► skills (recipe
   resolve-live skill). Launched via `uv run ea resolve-mcp`, installed by setup.
 - `remotion/`: motion graphics templates (Captions, LowerThird, Title), rendered with `ea motion`
 - `assets/`: bundled fonts (Montserrat, OFL) and the YuNet face model (MIT)
-- `memory/`: this user's preferences (personal, gitignored; created from `memory.template/`)
+- `.claude/_memory/`: shared project memory (memory-os project tier): how this codebase works,
+  gotchas, decisions, what is still unverified. Update it when you learn something about the code.
+- Editing memory (`ea memory`): the user's private taste, outside the repo; seeded from `memory.template/`
 - `projects/`: user projects (gitignored)
+
+## Project memory (memory-os)
+
+This repo carries its own memory in `.claude/_memory/`. Every session working here MUST
+read it: start with `_index.md`, then `project.md`, `focus.md`, `facts.md`, `people.md`,
+`decisions.md`. Skip files that are still empty templates. Don't announce the reads —
+just answer like you already know the context.
+
+Keep it true as you work: one fact per line, dates absolute (`YYYY-MM-DD`), `~` = uncertain,
+`decisions.md` is append-only (supersede with a new entry, never edit a past one), and
+update the `_index.md` hook whenever a file changes substantially.
+
+**This tier is committed and read by everyone with repo access.** Never write personal
+data into it — no personal emails, no absolute paths from someone's machine, no account
+logins, org/team IDs, or secrets. Anything personal belongs in the author's private global
+memory instead. Full spec: `~/.memory-os/CLAUDE.md` (install: github.com/edunascimentt/memory-os).

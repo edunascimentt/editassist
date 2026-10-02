@@ -15,5 +15,5 @@ description: Publishing package. Title options, description, YouTube chapters wi
    - description: two hook lines (visible before "more"), a summary, the chapter block from
      `output/<name>_chapters.txt`, links and credits (Pexels credits are in media.json `generated.credit`)
    - 10-15 tags, and a pinned comment
-4. Use the language and tone from `memory/preferences.md`; mention the channel's recurring CTA if
+4. Use the language and tone from `<memory>/preferences.md`; mention the channel's recurring CTA if
    one is stored there.

@@ -194,6 +194,9 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("resolve-mcp", help="DaVinci Resolve MCP server (used by .mcp.json); --setup [version] installs it")
     p.add_argument("--setup", nargs="?", const="")
 
+    p = sub.add_parser("memory", help="where this user's editing memory lives; --init seeds/migrates it")
+    p.add_argument("--init", action="store_true")
+
     sub.add_parser("doctor", help="check that every dependency and key is in place")
 
     a = ap.parse_args(argv)
@@ -399,6 +402,11 @@ def main(argv: list[str] | None = None) -> None:
             out(hf.generate(Project(a.project), a.endpoint, js(a.args), a.file, a.yes, a.timeout, a.name))
         elif a.hf == "fetch":
             out(hf.fetch(Project(a.project), a.request_id, timeout_min=a.timeout))
+    elif a.cmd == "memory":
+        from .project import init_memory, memory_dir
+        out(init_memory() if a.init else {"dir": str(memory_dir()),
+                                          "files": sorted(str(f.relative_to(memory_dir())) for f in memory_dir().rglob("*.md"))
+                                          if memory_dir().exists() else []})
     elif a.cmd == "doctor":
         from .doctor import doctor
         ok = doctor()

@@ -9,7 +9,27 @@
       "Edit(projects/**)",
       "Write(projects/**)",
       "Edit(memory/**)",
-      "Write(memory/**)"
+      "Write(memory/**)",
+      "Edit(~/.memory-os/memory/editassist/**)",
+      "Write(~/.memory-os/memory/editassist/**)",
+      "Read(~/.memory-os/memory/**)",
+      "Edit(.claude/_memory/**)",
+      "Write(.claude/_memory/**)",
+      "Bash(memory-os check:*)",
+      "Bash(memory-os status:*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/memory-os-check.sh\" 2>/dev/null || true",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

@@ -8,7 +8,7 @@ Needs `HF_API_KEY_ID` + `HF_API_KEY_SECRET` in `.env` (console.higgsfield.ai). E
 costs credits.
 
 1. **Pick a model**: `uv run ea hf models [--kind video|image] [--search kling]`. Defaults when the
-   user has no preference (check `memory/preferences.md` first):
+   user has no preference (check `<memory>/preferences.md` first):
    - realistic b-roll from text: a `kling-video/v3.0/...text-to-video` or `bytedance/seedance-2.5/text-to-video`
    - animate a still or a frame of the user's footage: an `...image-to-video` workflow
    - stills (thumbnails, inserts): `higgsfield-ai/soul/v2/standard`

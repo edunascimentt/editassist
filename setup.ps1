@@ -30,7 +30,7 @@ if (-not (Have uv)) {
 uv sync
 Push-Location remotion; npm install --no-audit --no-fund; Pop-Location
 
-if (-not (Test-Path memory)) { Copy-Item -Recurse memory.template memory }
+uv run ea memory --init | Out-Null  # memory-os global tier if installed, else gitignored memory/
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 
 # DaVinci Resolve MCP (live control of a running Resolve Studio); optional, skipped on failure

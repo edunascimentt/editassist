@@ -25,7 +25,7 @@ chapters and metadata.
  │  projects/<name>/ timeline.json          │
  └──────────────────────────────────────────┘
         ▲                     │
-        └── memory/ ◄── your feedback (preferences, styles, vocabulary)
+        └── memory ◄── your feedback (preferences, styles, vocabulary)
 ```
 
 Works on **macOS, Windows and Linux** (CI runs the test suite on all three).
@@ -89,7 +89,23 @@ Then talk to it:
 
 The agent creates `projects/<name>/`, tells you where to drop the media, shows you a preview and
 its decisions, and applies your notes. Anything you correct twice ("tighter cuts", "never use
-that font") is saved to `memory/` and becomes the default next time.
+that font") is saved to your editing memory and becomes the default next time.
+
+## Memory
+
+editassist uses [memory-os](https://github.com/edunascimentt/memory-os), two tiers split by who may
+read them:
+
+| | where | holds | shared? |
+|---|---|---|---|
+| **Your editing taste** | memory-os global tier, `~/.memory-os/memory/editassist/` | pacing, caption style, music, looks, vocabulary, named styles, delivery log | private: yours only, every Claude account you use, never committed |
+| **Project knowledge** | `.claude/_memory/` in this repo | how the code works, gotchas, decisions, what's unverified | committed: everyone who clones gets it |
+
+Install memory-os once (`git clone https://github.com/edunascimentt/memory-os.git ~/.memory-os &&
+~/.memory-os/install.sh`); a session-start notice reminds you if it's missing. Without it, your taste
+is kept in the gitignored `memory/` folder instead and `ea memory --init` migrates it later.
+`uv run ea memory` shows where yours lives. Before sharing the repo, `memory-os check` scans the
+project tier for personal data.
 
 ## Skills
 
@@ -148,6 +164,7 @@ ea bake <p> [--color]    ea render <p> [--preset youtube] [--subs output/<p>.ass
 ea export <p> --to resolve premiere aftereffects [fcpx] [--open]
 ea qa <p> [--render file.mp4]    ea chapters <p> chapters.json    ea thumbnail <p> [--pick N --text "..."]
 ea resolve-mcp [--setup [version]]     (MCP server for .mcp.json)
+ea memory [--init]                     (where your editing memory lives; seed/migrate it)
 ea doctor
 ```
 
@@ -161,8 +178,8 @@ projects/<name>/
   output/         previews, renders, .otio / .xml / .jsx / .fcpxml, .srt, thumbnail, chapters
 ```
 
-`projects/` and `memory/` are not committed: each person keeps their own footage and taste.
-To share a style with someone, send them the file from `memory/styles/`.
+`projects/` and your editing memory are never committed: each person keeps their own footage and
+taste. To share a style with someone, send them the file from `<memory>/styles/`.
 
 ## Development
 

@@ -25,7 +25,7 @@ fi
 uv sync
 (cd remotion && npm install --no-audit --no-fund)
 
-[[ -d memory ]] || cp -R memory.template memory
+uv run ea memory --init >/dev/null  # memory-os global tier if installed, else gitignored memory/
 [[ -f .env ]] || cp .env.example .env
 
 # DaVinci Resolve MCP (live control of a running Resolve Studio); optional, skipped on failure

@@ -15,5 +15,5 @@ description: Apply the user's feedback on a preview or NLE pass ("cut the part a
    qa, preview.
 4. Reply with what changed, per note.
 5. **Learn**: if the note is a general taste ("I always want tighter cuts", "never use that font"),
-   record it in `memory/preferences.md` right away (style-profile skill). One-off fixes are not
+   record it in `<memory>/preferences.md` right away (style-profile skill). One-off fixes are not
    preferences.

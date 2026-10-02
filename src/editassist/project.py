@@ -14,7 +14,63 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECTS = ROOT / "projects"
-MEMORY = ROOT / "memory"
+LOCAL_MEMORY = ROOT / "memory"
+
+
+def memory_dir() -> Path:
+    """Where this user's EDITING memory lives (taste, styles, vocabulary, project log):
+    1. EA_MEMORY_DIR if set
+    2. memory-os global tier: ~/.memory-os/memory/editassist/  (private, shared by all the
+       user's Claude accounts, never committed; see github.com/edunascimentt/memory-os)
+    3. <repo>/memory/  (gitignored fallback when memory-os isn't installed)
+    Codebase knowledge is separate: .claude/_memory/ (memory-os project tier, committed)."""
+    import os
+
+    if os.environ.get("EA_MEMORY_DIR"):
+        return Path(os.environ["EA_MEMORY_DIR"]).expanduser()
+    global_tier = Path.home() / ".memory-os" / "memory"
+    if global_tier.is_dir():
+        return global_tier / "editassist"
+    return LOCAL_MEMORY
+
+
+def init_memory() -> dict:
+    """Seed the editing memory from memory.template/ without touching existing files; when moving
+    to memory-os, carry over anything already written in the local fallback."""
+    import shutil
+
+    dst = memory_dir()
+    created, migrated = [], []
+    for src in sorted((ROOT / "memory.template").rglob("*")):
+        if src.is_dir():
+            continue
+        rel = src.relative_to(ROOT / "memory.template")
+        target = dst / rel
+        if target.exists():
+            continue
+        local = LOCAL_MEMORY / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if dst != LOCAL_MEMORY and local.exists() and local.read_bytes() != src.read_bytes():
+            shutil.copy2(local, target)  # user already wrote here before memory-os existed
+            migrated.append(str(rel))
+        else:
+            shutil.copy2(src, target)
+            created.append(str(rel))
+    if dst != LOCAL_MEMORY and LOCAL_MEMORY.is_dir():  # extra files written locally (new styles...)
+        for f in LOCAL_MEMORY.rglob("*"):
+            rel = f.relative_to(LOCAL_MEMORY)
+            if f.is_file() and not (dst / rel).exists():
+                (dst / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, dst / rel)
+                migrated.append(str(rel))
+    index = dst.parent / "_index.md"
+    line = "- [editassist/](editassist/preferences.md) — video-editing taste for editassist: pacing, captions, music, looks, vocabulary, named styles, delivery log"
+    if dst != LOCAL_MEMORY and index.exists() and "editassist/" not in index.read_text(encoding="utf-8"):
+        with open(index, "a", encoding="utf-8") as fh:
+            fh.write("\n" + line + "\n")
+    tier = "memory-os global (private)" if dst.parent == Path.home() / ".memory-os" / "memory" else (
+        "EA_MEMORY_DIR" if dst != LOCAL_MEMORY else "local fallback (gitignored)")
+    return {"dir": str(dst), "tier": tier, "created": created, "migrated": migrated}
 
 MEDIA_EXT = {
     "video": {".mp4", ".mov", ".mkv", ".mxf", ".avi", ".m4v", ".webm", ".mts"},

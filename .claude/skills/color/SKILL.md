@@ -20,4 +20,4 @@ Premiere/AE users load the same file.
 5. Undo: `uv run ea color <p> --reset [--media id]`.
 
 Each call rebuilds the LUT from scratch with the options given, so repeat the options you want to keep.
-Save the user's preferred look in `memory/preferences.md`.
+Save the user's preferred look in `<memory>/preferences.md`.
