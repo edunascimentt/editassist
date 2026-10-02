@@ -34,6 +34,9 @@ user prompt + media ──► you (Claude Code / Codex) ──► skills (recipe
 
 ## Rules
 
+- First run, or a request needs something `ea doctor` / `ea keys --check` shows as missing (a key, the
+  Resolve MCP, ffmpeg): use the editassist-setup skill for that part before continuing.
+
 - Run tools as `uv run ea <command>` from the repo root. Every command prints JSON; read it.
 - `timeline.json` is the single source of truth for the edit. Edit it directly when no command
   fits (format documented at the top of `src/editassist/timeline.py`), then

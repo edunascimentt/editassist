@@ -262,3 +262,23 @@ def test_launch_template_typechecks(tmp_path):
         pytest.skip("cannot symlink node_modules here (Windows without developer mode)")
     r = subprocess.run([shutil.which("npx"), "tsc", "-p", "."], cwd=dst, capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_keys_written_masked_and_private(tmp_path, monkeypatch):
+    import os
+    import platform
+
+    from editassist import keys as K
+
+    env = tmp_path / ".env"
+    env.write_text("# my comment\nPEXELS_API_KEY=old\nOTHER=1\n", encoding="utf-8")
+    monkeypatch.setattr(K, "ENV", env)
+    r = K.set_key("PEXELS_API_KEY", "  sk-test-1234567890  \n")
+    assert r["value"] == "…7890" and "1234567890" not in json.dumps(r)
+    text = env.read_text(encoding="utf-8")
+    assert "# my comment" in text and "OTHER=1" in text and "PEXELS_API_KEY=sk-test-1234567890" in text and "old" not in text
+    K.set_key("HF_TOKEN", "hf_abcdefghijkl")
+    rows = {x["key"]: x for x in K.status()}
+    assert rows["HF_TOKEN"]["set"] and rows["HF_TOKEN"]["source"] == ".env" and rows["HF_TOKEN"]["value"] == "…ijkl"
+    if platform.system() != "Windows":
+        assert oct(os.stat(env).st_mode)[-3:] == "600"

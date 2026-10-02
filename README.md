@@ -14,7 +14,7 @@ chapters and metadata.
  │  Claude Code / Codex  (reads CLAUDE.md)  │
  │        │ follows                         │
  │        ▼                                 │
- │  skills  (.claude/skills/*, 30 recipes)  │      ┌─ DaVinci Resolve (.otio, auto-import + LUTs)
+ │  skills  (.claude/skills/*, 31 recipes)  │      ┌─ DaVinci Resolve (.otio, auto-import + LUTs)
  │        │ calls                           │      │
  │        ▼                                 │      ├─ Premiere Pro (.xml)
  │  `ea` CLI  ── ffmpeg · Whisper ·         │ ───► │
@@ -47,7 +47,12 @@ git clone <this repo> editassist; cd editassist
 powershell -ExecutionPolicy Bypass -File setup.ps1
 ```
 
-Then fill in `.env` with the keys you want to use (all optional):
+**Easiest: let the agent do it.** Open Claude Code in the folder (`claude`) and say
+"configura o editassist" / "set up editassist". The `editassist-setup` skill installs what's missing
+(asking first), collects and validates your API keys without exposing them, sets up Resolve and
+memory, records your editing preferences and runs the self-test.
+
+Or by hand: fill in `.env` with the keys you want to use (all optional):
 
 | Key | For | Where |
 |---|---|---|
@@ -57,7 +62,8 @@ Then fill in `.env` with the keys you want to use (all optional):
 | `PEXELS_API_KEY` | stock b-roll search (free) | pexels.com/api |
 | `HF_TOKEN` | automatic speaker detection (optional extra) | huggingface.co/settings/tokens |
 
-Check everything with `uv run ea doctor`.
+Check everything with `uv run ea doctor` and `uv run ea keys --check` (validates each key against a
+free endpoint, prints only the last 4 characters). `uv run ea selftest` runs the test suite.
 
 For Resolve auto-import, open Resolve and set **Preferences > System > General > External
 scripting using: Local**. Without it you import the `.otio` file manually.
@@ -137,6 +143,7 @@ project tier for personal data.
 | | `thumbnail` | best-frame candidates + composed thumbnail |
 | | `metadata` | titles, description, validated YouTube chapters, tags |
 | | `translate-dub` | translated subtitles, ElevenLabs dubbing |
+| Setup | `editassist-setup` | guided install, API keys (validated, never echoed), Resolve, memory, preferences, self-test |
 | Meta | `qa` | gaps, flash frames, mid-word cuts, loudness, black frames |
 | | `review` | apply feedback on a version |
 | | `style-profile` | maintain the memory: preferences, named styles, vocabulary |
@@ -167,6 +174,7 @@ ea qa <p> [--render file.mp4]    ea chapters <p> chapters.json    ea thumbnail <
 ea launch new|reference|stills|audit|sfx-kit|vo|music|stretch-music|render|verify <p> ...   (launch films)
 ea resolve-mcp [--setup [version]]     (MCP server for .mcp.json)
 ea memory [--init]                     (where your editing memory lives; seed/migrate it)
+ea keys [--check] | ea keys set NAME < value     ea selftest
 ea doctor
 ```
 

@@ -223,6 +223,12 @@ def main(argv: list[str] | None = None) -> None:
     q = ls.add_parser("verify", help="check a rendered file: frames, size, sheet every 3 s, loudness")
     q.add_argument("project"); q.add_argument("file")
 
+    p = sub.add_parser("keys", help="API keys: status (masked), --check validates for free, `set NAME` reads the value from stdin")
+    p.add_argument("action", nargs="?", default="status", choices=["status", "set"])
+    p.add_argument("name", nargs="?"); p.add_argument("--check", action="store_true"); p.add_argument("--only", nargs="*")
+
+    sub.add_parser("selftest", help="run the test suite on synthetic media (no keys, no downloads)")
+
     p = sub.add_parser("memory", help="where this user's editing memory lives; --init seeds/migrates it")
     p.add_argument("--init", action="store_true")
 
@@ -455,6 +461,20 @@ def main(argv: list[str] | None = None) -> None:
             out(L.render(pr, a.comp, a.size, a.out))
         elif k == "verify":
             out(L.verify(pr, a.file))
+    elif a.cmd == "keys":
+        from . import keys as K
+        if a.action == "set":
+            if not a.name:
+                raise SystemExit("usage: ea keys set NAME   (value on stdin, e.g. from a file or a pipe)")
+            value = sys.stdin.readline()
+            out(K.set_key(a.name, value) | ({"check": K.status(True, [a.name])[0].get("note")} if a.name in K.KEYS else {}))
+        else:
+            out({"env_file": str(K.ENV), "gitignored": K.is_gitignored(), "keys": K.status(a.check, a.only)})
+    elif a.cmd == "selftest":
+        import subprocess as sp
+        from .project import ROOT
+        r = sp.call(["uv", "run", "--extra", "dev", "pytest", "-q"], cwd=str(ROOT))
+        sys.exit(r)
     elif a.cmd == "memory":
         from .project import init_memory, memory_dir
         out(init_memory() if a.init else {"dir": str(memory_dir()),
