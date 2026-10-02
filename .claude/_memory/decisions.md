@@ -36,3 +36,10 @@ calls `uv run ea resolve-mcp` so the repo holds no absolute paths and works on m
 Codebase knowledge in `.claude/_memory/` (this tier, shared). Each user's editing taste goes to their
 private memory-os global tier (`<global>/editassist/`), shared across their Claude accounts; repo
 `memory/` (gitignored) is only the fallback when memory-os isn't installed.
+
+## 2026-10-02 — Product launch films: template + measurable rules
+From the "Make product launch videos with AI" playbook. Films are generated in Remotion from
+`templates/launch/` (stage, UI kit, bench, soundtrack with cue-driven SFX), and the guide's eyeball
+rules became checks the agent runs itself (`ea launch audit`: storyboard, copy, palette, glyphs,
+8-frame motion density) plus stills/contact sheets as its eyes. One shared node_modules was rejected:
+each film is its own npm project, so it can add three.js etc. without touching the others.

@@ -777,6 +777,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "faster-whisper" },
+    { name = "fonttools" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "opencv-python-headless" },
@@ -799,6 +800,7 @@ diarize = [
 [package.metadata]
 requires-dist = [
     { name = "faster-whisper", specifier = ">=1.2" },
+    { name = "fonttools", specifier = ">=4.50" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "opencv-python-headless", specifier = ">=4.10" },
     { name = "opentimelineio", specifier = ">=0.18" },

@@ -103,11 +103,11 @@ def track_beats(env, period: float, tightness: float = 100.0):
     return np.array(beats[::-1])
 
 
-def detect(project: Project, sid: str) -> dict:
+def detect_file(path: str) -> dict:
+    """Tempo, beats and downbeats (seconds) of any audio/video file."""
     import numpy as np
 
-    m = media_by_id(project)[sid]
-    y = load_audio(str(project.abs(m["path"])))
+    y = load_audio(path)
     env = onset_envelope(y)
     bpm, period, conf = tempo(env)
     idx = track_beats(env, period)
@@ -120,11 +120,15 @@ def detect(project: Project, sid: str) -> dict:
     # the flux of frame i reflects the change between frames i-1 and i; measured on synthetic
     # tracks with known beats, the onset sits half a hop after frame i's centre
     beats = [round(float(frame_time(i) + HOP / SR / 2), 3) for i in idx]
-    # downbeat phase: which of the 4 offsets carries the most onset energy
+    # downbeat phase: which of the 4 offsets carries the most kick energy
     strength = [float(np.sum(low[idx[p::4]])) for p in range(4)] if len(idx) >= 8 else [1, 0, 0, 0]
     phase = int(np.argmax(strength))
-    res = {"media": sid, "bpm": round(float(bpm), 2), "confidence": round(conf, 3),
-           "beats": beats, "downbeats": beats[phase::4]}
+    return {"bpm": round(float(bpm), 2), "confidence": round(conf, 3), "beats": beats, "downbeats": beats[phase::4]}
+
+
+def detect(project: Project, sid: str) -> dict:
+    m = media_by_id(project)[sid]
+    res = {"media": sid, **detect_file(str(project.abs(m["path"])))}
     write_json(project.path("work", "beats", f"{sid}.json"), res)
     return {k: (v if k not in ("beats", "downbeats") else f"{len(v)} times") for k, v in res.items()} | {
         "file": f"work/beats/{sid}.json"}

@@ -1,0 +1,20 @@
+{
+  "_comment": "The ONLY colours allowed in the film (ea launch audit enforces it). Replace with the brand's.",
+  "colors": {
+    "ink": "#14161A",
+    "paper": "#FFFFFF",
+    "cream": "#F6F3EC",
+    "mint": "#DFF7E3",
+    "sky": "#DDEBFF",
+    "blush": "#FCE3E1",
+    "lemon": "#FFF6CC",
+    "night": "#0E1A12",
+    "brand": "#3DDC64",
+    "brandDark": "#1E9E42",
+    "muted": "#6B7280",
+    "line": "#E5E7EB",
+    "danger": "#EF4444"
+  },
+  "accent": "brand",
+  "text": "ink"
+}

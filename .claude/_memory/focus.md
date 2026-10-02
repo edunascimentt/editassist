@@ -14,6 +14,7 @@
 - `ea export --open` creating a project in Resolve (only the scripting connection was tested).
 - Resolve MCP tools that change a project (only handshake + tool list tested).
 - Live API calls: ElevenLabs (tts, sfx, music, dubbing), Higgsfield generation, Pexels, pyannote.
+- product-launch with a real brand/product and live ElevenLabs music (composition plan), VO and SFX kit (only synthetic audio tested).
 - libass path of caption burn-in (dev machine's ffmpeg has no libass).
 
 ## Blocked / waiting on

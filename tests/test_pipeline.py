@@ -221,3 +221,44 @@ def test_editing_memory_tiers(monkeypatch, tmp_path):
     assert P.memory_dir() == dst and "preferences.md" in res["migrated"]
     assert "0.3s" in (dst / "preferences.md").read_text(encoding="utf-8")
     assert "editassist/" in (home / ".memory-os" / "memory" / "_index.md").read_text(encoding="utf-8")
+
+
+def test_launch_scaffold_audit_and_music_tools(project, media_dir):
+    from editassist import launch as L
+
+    r = L.new(project, seconds=10, install=False)
+    d = project.path(r["launch"])
+    assert (d / "src" / "beats.json").exists() and (d / "public" / "fonts" / "Brand-Black.ttf").exists()
+    res = L.audit(project)
+    assert res["ok"], res["issues"]
+    # planted problems are caught
+    beats = json.loads((d / "src" / "beats.json").read_text(encoding="utf-8"))
+    beats["beats"][0]["title"] = [[{"t": "BOOK A DEMO NOW"}], [{"t": "press ⌘K", "accent": True}, {"t": " now", "accent": True}]]
+    beats["beats"][2]["from"] += 5
+    (d / "src" / "beats.json").write_text(json.dumps(beats), encoding="utf-8")
+    issues = {(i["area"], i["severity"]) for i in L.audit(project)["issues"]}
+    assert ("copy", "warn") in issues and ("storyboard", "error") in issues and ("font", "error") in issues
+    # music: bars detected, stretch lands on whole bars, two-pass loudness
+    music = d / "public" / "audio" / "music.wav"
+    shutil.copy(media_dir / "music_120.wav", music)
+    L._place_music(project, music, -6, -9)
+    out = L.stretch_music(project, 31)
+    assert abs(out["duration"] - 31) <= out["bar_seconds"] + 0.1
+    norm = L._loudnorm(music, d / "public" / "audio" / "n.mp3")
+    r = subprocess.run(["ffmpeg", "-v", "info", "-i", str(norm), "-af", "ebur128", "-f", "null", "-"], capture_output=True, text=True)
+    import re
+    assert abs(float(re.findall(r"I:\s+(-?[\d.]+) LUFS", r.stderr)[-1]) - L.LUFS) < 1.0
+
+
+def test_launch_template_typechecks(tmp_path):
+    nm = ROOT / "remotion" / "node_modules"
+    if not (nm.exists() and shutil.which("npx")):
+        pytest.skip("remotion deps not installed")
+    dst = tmp_path / "launch"
+    shutil.copytree(ROOT / "templates" / "launch", dst)
+    try:
+        (dst / "node_modules").symlink_to(nm, target_is_directory=True)
+    except OSError:
+        pytest.skip("cannot symlink node_modules here (Windows without developer mode)")
+    r = subprocess.run([shutil.which("npx"), "tsc", "-p", "."], cwd=dst, capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr

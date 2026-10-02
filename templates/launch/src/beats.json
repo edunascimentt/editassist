@@ -1,0 +1,23 @@
+{
+  "_comment": "The storyboard: the contract every scene follows. Frames are PICTURE frames at film.json fps (before playback slow-down). kind: title | demo. title: lines of spans; one accent span per line, sentence case.",
+  "beats": [
+    {
+      "id": "opener", "kind": "title", "from": 0, "duration": 75, "bg": "mint",
+      "transition": { "shape": "circle", "duration": 12 },
+      "title": [[{ "t": "Your product" }], [{ "t": "just got " }, { "t": "simpler", "accent": true }]],
+      "notes": "Word pops, settle 1s, wipe out."
+    },
+    {
+      "id": "demo1", "kind": "demo", "from": 75, "duration": 150, "bg": "cream", "scene": "Example",
+      "transition": { "shape": "star", "duration": 14 },
+      "title": [[{ "t": "Every request, " }, { "t": "in view", "accent": true }]],
+      "notes": "Browser rises in, rows stagger, number rolls, cursor clicks Approve, toast, check."
+    },
+    {
+      "id": "logo", "kind": "title", "from": 225, "duration": 75, "bg": "brand",
+      "transition": { "shape": "squircle", "duration": 14 },
+      "title": [[{ "t": "Book a " }, { "t": "demo", "accent": true }]],
+      "notes": "End card."
+    }
+  ]
+}

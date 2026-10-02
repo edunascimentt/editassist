@@ -10,8 +10,8 @@
 
 - [project.md](project.md) — what editassist is, stack, how to run/test, constraints
 - [focus.md](focus.md) — priorities + the list of things NOT yet verified (Windows, NLE imports, live APIs)
-- [facts.md](facts.md) — where things live, conventions (posix json paths, ffmpeg cwd), 15 hard-won gotchas
+- [facts.md](facts.md) — where things live, conventions (posix json paths, ffmpeg cwd), 22 hard-won gotchas (incl. launch template)
 - [people.md](people.md) — roles: owner, collaborator
 - [decisions.md](decisions.md) — append-only: engine design, timeline format, bundling, bake, Higgsfield, Resolve MCP, memory tiers
 
-- **BUILT (2026-10-01):** full pipeline + 28 skills + tests/CI. **2026-10-02:** Resolve MCP, memory-os.
+- **BUILT (2026-10-01):** full pipeline + 28 skills + tests/CI. **2026-10-02:** Resolve MCP, memory-os, product-launch skill (`templates/launch/`, `ea launch`).

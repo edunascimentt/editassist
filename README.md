@@ -14,7 +14,7 @@ chapters and metadata.
  │  Claude Code / Codex  (reads CLAUDE.md)  │
  │        │ follows                         │
  │        ▼                                 │
- │  skills  (.claude/skills/*, 29 recipes)  │      ┌─ DaVinci Resolve (.otio, auto-import + LUTs)
+ │  skills  (.claude/skills/*, 30 recipes)  │      ┌─ DaVinci Resolve (.otio, auto-import + LUTs)
  │        │ calls                           │      │
  │        ▼                                 │      ├─ Premiere Pro (.xml)
  │  `ea` CLI  ── ffmpeg · Whisper ·         │ ───► │
@@ -131,6 +131,7 @@ project tier for personal data.
 | | `b-roll` | own footage > Pexels stock > generated |
 | | `higgsfield` | text/image-to-video and images via the Higgsfield API (80+ models) |
 | | `motion-graphics` | Remotion lower thirds, titles, animated captions |
+| Launch films | `product-launch` | UI-first product launch film in Remotion: reference study, storyboard, UI kit + bench, elastic stage, density-audited scenes, composed music, VO, SFX, verified export |
 | Delivery | `export-nle` | Resolve / Premiere / After Effects / Final Cut |
 | | `render` | mp4 with platform loudness presets |
 | | `thumbnail` | best-frame candidates + composed thumbnail |
@@ -163,6 +164,7 @@ ea motion <p> LowerThird|Title|Captions --props '{...}'
 ea bake <p> [--color]    ea render <p> [--preset youtube] [--subs output/<p>.ass]
 ea export <p> --to resolve premiere aftereffects [fcpx] [--open]
 ea qa <p> [--render file.mp4]    ea chapters <p> chapters.json    ea thumbnail <p> [--pick N --text "..."]
+ea launch new|reference|stills|audit|sfx-kit|vo|music|stretch-music|render|verify <p> ...   (launch films)
 ea resolve-mcp [--setup [version]]     (MCP server for .mcp.json)
 ea memory [--init]                     (where your editing memory lives; seed/migrate it)
 ea doctor

@@ -1,0 +1,23 @@
+{
+  "name": "launch-film",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Product launch film (editassist product-launch template): UI-first motion graphics in Remotion.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts Film",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.532",
+    "@remotion/cli": "4.0.532",
+    "@remotion/renderer": "4.0.532",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.532"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "typescript": "^5"
+  }
+}

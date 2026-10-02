@@ -194,6 +194,35 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("resolve-mcp", help="DaVinci Resolve MCP server (used by .mcp.json); --setup [version] installs it")
     p.add_argument("--setup", nargs="?", const="")
 
+    p = sub.add_parser("launch", help="product launch film in Remotion (product-launch skill)")
+    ls = p.add_subparsers(dest="launch", required=True)
+    q = ls.add_parser("new", help="scaffold projects/<p>/launch from the template")
+    q.add_argument("project"); q.add_argument("--seconds", type=float, default=50); q.add_argument("--fps", type=int, default=30)
+    q.add_argument("--size", default="1920x1080"); q.add_argument("--font", help="brand font, heavy weight (.ttf/.otf)")
+    q.add_argument("--font-bold", help="brand font, bold weight"); q.add_argument("--font-name"); q.add_argument("--no-install", action="store_true")
+    q = ls.add_parser("reference", help="study a reference film: brightness fix, 2 fps sheets, 30 fps strips at cuts")
+    q.add_argument("project"); q.add_argument("video"); q.add_argument("--fps", type=float, default=2.0)
+    q = ls.add_parser("stills", help="render frames and tile them into labelled contact sheets")
+    q.add_argument("project"); q.add_argument("--comp", default="Film"); q.add_argument("--every", type=int, default=0)
+    q.add_argument("--frames", default=""); q.add_argument("--range", default=""); q.add_argument("--scale", type=float, default=0.5)
+    q.add_argument("--size", help="render another format, e.g. 1080x1920")
+    q = ls.add_parser("audit", help="storyboard, copy, palette, glyph, audio checks; --motion measures UI density")
+    q.add_argument("project"); q.add_argument("--motion", action="store_true")
+    q = ls.add_parser("sfx-kit", help="generate (or reuse cached) UI sound kit via ElevenLabs")
+    q.add_argument("project"); q.add_argument("--kinds", nargs="*")
+    q = ls.add_parser("vo", help="voice-over: one line per beat [{beat, text, offset}]")
+    q.add_argument("project"); q.add_argument("lines"); q.add_argument("--voice")
+    q.add_argument("--stability", type=float, default=0.3); q.add_argument("--similarity", type=float, default=0.8)
+    q.add_argument("--style", type=float, default=0.5); q.add_argument("--speed", type=float, default=1.05)
+    q = ls.add_parser("music", help="music composed to the cut from a section plan (ElevenLabs composition plan)")
+    q.add_argument("project"); q.add_argument("plan"); q.add_argument("--gain", type=float, default=-6); q.add_argument("--duck", type=float, default=-9)
+    q = ls.add_parser("stretch-music", help="lengthen the music bed by looping its groove on bar lines (no credits)")
+    q.add_argument("project"); q.add_argument("seconds", type=float)
+    q = ls.add_parser("render", help="render, normalise to -16 LUFS without re-encoding video, verify")
+    q.add_argument("project"); q.add_argument("--comp", default="Film"); q.add_argument("--size"); q.add_argument("--out")
+    q = ls.add_parser("verify", help="check a rendered file: frames, size, sheet every 3 s, loudness")
+    q.add_argument("project"); q.add_argument("file")
+
     p = sub.add_parser("memory", help="where this user's editing memory lives; --init seeds/migrates it")
     p.add_argument("--init", action="store_true")
 
@@ -402,6 +431,30 @@ def main(argv: list[str] | None = None) -> None:
             out(hf.generate(Project(a.project), a.endpoint, js(a.args), a.file, a.yes, a.timeout, a.name))
         elif a.hf == "fetch":
             out(hf.fetch(Project(a.project), a.request_id, timeout_min=a.timeout))
+    elif a.cmd == "launch":
+        from . import launch as L
+        pr = Project(a.project)
+        k = a.launch
+        if k == "new":
+            out(L.new(pr, a.seconds, a.fps, a.size, a.font, a.font_bold, a.font_name, not a.no_install))
+        elif k == "reference":
+            out(L.reference(pr, a.video, a.fps))
+        elif k == "stills":
+            out(L.stills(pr, a.comp, a.every, a.frames, a.range, a.scale, a.size))
+        elif k == "audit":
+            out(L.audit(pr, a.motion))
+        elif k == "sfx-kit":
+            out(L.sfx_kit(pr, a.kinds))
+        elif k == "vo":
+            out(L.vo(pr, a.lines, a.voice, a.stability, a.similarity, a.style, a.speed))
+        elif k == "music":
+            out(L.music(pr, a.plan, a.gain, a.duck))
+        elif k == "stretch-music":
+            out(L.stretch_music(pr, a.seconds))
+        elif k == "render":
+            out(L.render(pr, a.comp, a.size, a.out))
+        elif k == "verify":
+            out(L.verify(pr, a.file))
     elif a.cmd == "memory":
         from .project import init_memory, memory_dir
         out(init_memory() if a.init else {"dir": str(memory_dir()),

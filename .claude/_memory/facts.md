@@ -37,3 +37,10 @@
 - macOS system python3 is 3.9; the Resolve MCP needs 3.10+, so `ea resolve-mcp --setup` hands it this project's interpreter.
 - Resolve external scripting (our `--open` and the MCP) works only on Resolve Studio.
 - Remotion first render downloads a headless browser (~1 min in CI).
+- Launch template (2026-10-02): CSS `mix-blend-mode: difference` glitch slices turn into black bars on light floods; use offset slices + an accent drop-shadow.
+- Word-pop scale overshoot >5% makes neighbouring words collide ("Everyrequest"); keep the overshoot in the lift (y), cap scale.
+- An accent word on a background that IS the accent colour disappears; `accentOn()` swaps to paper/ink.
+- Incoming beats must show text from their first frame (title `at: 0`), or the wipe reveals a blank flood.
+- One-pass and even two-pass linear `loudnorm` miss the target on short or peaky audio (-17.8 / -20.3 LUFS); `launch.normalize()` = measured gain + true-peak limiter, iterated (±0.5 LU).
+- `stretch-music` must splice from the ORIGINAL bed (`music.source`), or repeated stretches compound and overwrite their input.
+- Remotion 4.0.532 `<Sequence playbackRate>` slows the picture; audio stays outside it (verified: 120 bpm bed still 120 bpm in a 1.5x-slowed render).

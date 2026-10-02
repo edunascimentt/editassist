@@ -1,0 +1,6 @@
+{
+  "_comment": "Written by `ea launch music|vo|sfx-kit`. Frames in `at` are PICTURE frames; Soundtrack converts them for playback slow-down. Paths are relative to public/.",
+  "music": null,
+  "vo": [],
+  "sfx": {}
+}

@@ -56,6 +56,7 @@ user prompt + media ──► you (Claude Code / Codex) ──► skills (recipe
 - `.claude/skills/`: the recipes you follow
 - `.mcp.json`: the `davinci-resolve` MCP server (live control of a running Resolve Studio; see the
   resolve-live skill). Launched via `uv run ea resolve-mcp`, installed by setup.
+- `templates/launch/`: Remotion starter for product launch films (`ea launch new`, product-launch skill)
 - `remotion/`: motion graphics templates (Captions, LowerThird, Title), rendered with `ea motion`
 - `assets/`: bundled fonts (Montserrat, OFL) and the YuNet face model (MIT)
 - `.claude/_memory/`: shared project memory (memory-os project tier): how this codebase works,
