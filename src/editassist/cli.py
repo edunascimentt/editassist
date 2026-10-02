@@ -227,6 +227,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("action", nargs="?", default="status", choices=["status", "set"])
     p.add_argument("name", nargs="?"); p.add_argument("--check", action="store_true"); p.add_argument("--only", nargs="*")
 
+    p = sub.add_parser("setup-done", help="mark first-run setup finished on this machine (stops the first-run prompt)")
+    p.add_argument("--skipped", action="store_true"); p.add_argument("--reset", action="store_true")
+
     sub.add_parser("selftest", help="run the test suite on synthetic media (no keys, no downloads)")
 
     p = sub.add_parser("memory", help="where this user's editing memory lives; --init seeds/migrates it")
@@ -470,6 +473,18 @@ def main(argv: list[str] | None = None) -> None:
             out(K.set_key(a.name, value) | ({"check": K.status(True, [a.name])[0].get("note")} if a.name in K.KEYS else {}))
         else:
             out({"env_file": str(K.ENV), "gitignored": K.is_gitignored(), "keys": K.status(a.check, a.only)})
+    elif a.cmd == "setup-done":
+        import platform as pf
+        import time as tm
+        from .project import ROOT, write_json
+        marker = ROOT / ".editassist" / "setup.json"
+        if a.reset:
+            marker.unlink(missing_ok=True)
+            out({"reset": True, "next_session": "will start the guided setup"})
+        else:
+            write_json(marker, {"status": "skipped" if a.skipped else "done", "date": tm.strftime("%Y-%m-%d"),
+                                "platform": f"{pf.system()} {pf.machine()}"})
+            out({"marker": ".editassist/setup.json", "status": "skipped" if a.skipped else "done"})
     elif a.cmd == "selftest":
         import subprocess as sp
         from .project import ROOT

@@ -29,6 +29,15 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/first-run-check.sh\" 2>/dev/null || true",
+            "timeout": 10
+          }
+        ]
       }
     ]
   }

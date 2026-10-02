@@ -11,3 +11,4 @@ remotion/node_modules/
 remotion/out/
 .DS_Store
 Thumbs.db
+.editassist/

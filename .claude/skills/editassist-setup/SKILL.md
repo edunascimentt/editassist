@@ -8,6 +8,11 @@ Goal: the user leaves with everything they want working, verified, and knows wha
 turn it on later. Re-runnable: when they only want one thing ("add my Higgsfield key"), jump to that step.
 Talk in the user's language. Ask one group of questions at a time (AskUserQuestion), never a wall.
 
+## First run
+`.claude/first-run-check.sh` (SessionStart hook) asks you to start this skill on the first message
+of a machine's first session. Keep the opening to one line, offer to skip, and respect a skip
+(`uv run ea setup-done --skipped`). After a skip or a partial setup, still do what the user asked.
+
 ## 0. Where are we
 Run and read: `uv run ea doctor`, `uv run ea keys --check`, `uv run ea memory`. If `uv` is missing,
 go to step 1. Note the OS: macOS, Windows (PowerShell or Git Bash) or Linux. Summarise in 3-5 lines:
@@ -80,3 +85,4 @@ language of their videos, music taste. Write them to `<memory>/preferences.md` w
 - `uv run ea doctor` and `uv run ea keys --check`.
 - Final table: feature → ready / off (and the one command or step to turn it on). Then suggest a first
   task: "put a video in `projects/test/input/` and ask: cut the silences and add captions".
+- Mark it: `uv run ea setup-done` (stops the first-run prompt on this machine; `--reset` brings it back).

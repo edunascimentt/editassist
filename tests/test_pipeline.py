@@ -282,3 +282,16 @@ def test_keys_written_masked_and_private(tmp_path, monkeypatch):
     assert rows["HF_TOKEN"]["set"] and rows["HF_TOKEN"]["source"] == ".env" and rows["HF_TOKEN"]["value"] == "…ijkl"
     if platform.system() != "Windows":
         assert oct(os.stat(env).st_mode)[-3:] == "600"
+
+
+def test_first_run_hook(tmp_path):
+    if not shutil.which("bash"):
+        pytest.skip("bash not available")
+    script = ROOT / ".claude" / "first-run-check.sh"
+    env = {**__import__("os").environ, "CLAUDE_PROJECT_DIR": str(tmp_path)}
+    r = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
+    d = json.loads(r.stdout)
+    assert "editassist-setup" in d["hookSpecificOutput"]["additionalContext"]
+    (tmp_path / ".editassist").mkdir()
+    (tmp_path / ".editassist" / "setup.json").write_text('{"status": "done"}')
+    assert subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True).stdout == ""
