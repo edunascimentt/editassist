@@ -14,7 +14,7 @@ chapters and metadata.
  │  Claude Code / Codex  (reads CLAUDE.md)  │
  │        │ follows                         │
  │        ▼                                 │
- │  skills  (.claude/skills/*, 28 recipes)  │      ┌─ DaVinci Resolve (.otio, auto-import + LUTs)
+ │  skills  (.claude/skills/*, 29 recipes)  │      ┌─ DaVinci Resolve (.otio, auto-import + LUTs)
  │        │ calls                           │      │
  │        ▼                                 │      ├─ Premiere Pro (.xml)
  │  `ea` CLI  ── ffmpeg · Whisper ·         │ ───► │
@@ -61,6 +61,14 @@ Check everything with `uv run ea doctor`.
 
 For Resolve auto-import, open Resolve and set **Preferences > System > General > External
 scripting using: Local**. Without it you import the `.otio` file manually.
+
+**Live Resolve control (Studio only).** Setup also installs the
+[DaVinci Resolve MCP server](https://github.com/samuelgursky/davinci-resolve-mcp) (pinned
+version, one managed copy per machine). `.mcp.json` registers it for Claude Code as
+`davinci-resolve`; approve it the first time you start `claude` in this folder. The agent then
+grades, adds transitions, manages the render queue and reads back your manual changes in the open
+Resolve project (resolve-live skill). Reinstall or update: `uv run ea resolve-mcp --setup [version]`.
+The free edition of Resolve blocks external scripting; see the MCP's README for its in-app bridge.
 
 ## Using it
 
@@ -139,6 +147,7 @@ ea motion <p> LowerThird|Title|Captions --props '{...}'
 ea bake <p> [--color]    ea render <p> [--preset youtube] [--subs output/<p>.ass]
 ea export <p> --to resolve premiere aftereffects [fcpx] [--open]
 ea qa <p> [--render file.mp4]    ea chapters <p> chapters.json    ea thumbnail <p> [--pick N --text "..."]
+ea resolve-mcp [--setup [version]]     (MCP server for .mcp.json)
 ea doctor
 ```
 

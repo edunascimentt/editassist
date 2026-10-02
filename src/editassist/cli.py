@@ -15,6 +15,15 @@ def out(obj) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["resolve-mcp"]:  # MCP stdio server: hand stdout over untouched, before anything prints
+        from . import resolve_mcp
+        rest = argv[1:]
+        if "--setup" in rest:
+            i = rest.index("--setup")
+            ver = rest[i + 1] if len(rest) > i + 1 and not rest[i + 1].startswith("-") else resolve_mcp.VERSION
+            sys.exit(resolve_mcp.setup(ver))
+        sys.exit(resolve_mcp.serve(rest))
     if hasattr(sys.stdout, "reconfigure"):  # Windows consoles default to cp1252
         sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(prog="ea", description=__doc__)
@@ -181,6 +190,9 @@ def main(argv: list[str] | None = None) -> None:
     q.add_argument("--timeout", type=float, default=30, help="minutes to wait")
     q = hs.add_parser("fetch", help="resume a submitted request: wait, download, register")
     q.add_argument("project"); q.add_argument("request_id"); q.add_argument("--timeout", type=float, default=30)
+
+    p = sub.add_parser("resolve-mcp", help="DaVinci Resolve MCP server (used by .mcp.json); --setup [version] installs it")
+    p.add_argument("--setup", nargs="?", const="")
 
     sub.add_parser("doctor", help="check that every dependency and key is in place")
 

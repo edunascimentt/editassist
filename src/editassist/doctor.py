@@ -48,6 +48,12 @@ def doctor() -> bool:
     mod, lib = _resolve_paths()
     row("Resolve scripting", os.path.exists(lib), "auto-import with `ea export --open` (manual import works without it)",
         required=False)
+    from .resolve_mcp import VERSION, install_root, venv_python
+
+    root = install_root()
+    row("Resolve MCP", venv_python(root).exists() and (root / "src" / "server.py").exists(),
+        f"live Resolve control via .mcp.json (davinci-resolve-mcp {VERSION}); `uv run ea resolve-mcp --setup`",
+        required=False)
     print(f"editassist doctor ({platform.system()} {platform.machine()})")
     print("\n".join(rows))
     print("ready" if ok else "missing required pieces: run setup again")

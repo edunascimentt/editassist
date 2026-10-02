@@ -52,6 +52,8 @@ user prompt + media ──► you (Claude Code / Codex) ──► skills (recipe
 
 - `src/editassist/`: the `ea` CLI (one module per command group)
 - `.claude/skills/`: the recipes you follow
+- `.mcp.json`: the `davinci-resolve` MCP server (live control of a running Resolve Studio; see the
+  resolve-live skill). Launched via `uv run ea resolve-mcp`, installed by setup.
 - `remotion/`: motion graphics templates (Captions, LowerThird, Title), rendered with `ea motion`
 - `assets/`: bundled fonts (Montserrat, OFL) and the YuNet face model (MIT)
 - `memory/`: this user's preferences (personal, gitignored; created from `memory.template/`)

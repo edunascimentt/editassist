@@ -28,6 +28,11 @@ uv sync
 [[ -d memory ]] || cp -R memory.template memory
 [[ -f .env ]] || cp .env.example .env
 
+# DaVinci Resolve MCP (live control of a running Resolve Studio); optional, skipped on failure
+if [[ -d "/Applications/DaVinci Resolve" || -d /opt/resolve ]]; then
+  uv run ea resolve-mcp --setup || echo "Resolve MCP setup failed: rerun later with 'uv run ea resolve-mcp --setup'"
+fi
+
 uv run ea doctor || true
 echo
 echo "Done. Open this folder in Claude Code (\`claude\`) or Codex and describe the video you want."

@@ -18,6 +18,8 @@ description: Deliver the edit as an editable project in DaVinci Resolve, Premier
   General > External scripting using: Local), it saves the current project, then creates/opens a
   project named after the timeline and imports it, plus the SRT into the media pool. Manual: File >
   Import > Timeline > pick the .otio.
+- After the import, finish inside Resolve with the resolve-live skill (MCP tools: grades,
+  transitions, render queue).
 - **Premiere**: `output/<name>.xml` (FCP7 XML). File > Import > choose the .xml; relink if media moved.
   Captions: File > Import the .srt, drag to a caption track.
 - **After Effects**: `output/<name>.jsx`. File > Scripts > Run Script File. Builds the comp, layers,

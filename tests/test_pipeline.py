@@ -188,3 +188,13 @@ def test_remotion_lower_third(project):
     T.save(project, T.new(project))
     r = render_motion(project, "LowerThird", {"name": "Teste", "role": "CI"}, seconds=1)
     assert project.path(r["path"]).exists()
+
+
+def test_resolve_mcp_launcher_paths(monkeypatch, tmp_path):
+    from editassist import resolve_mcp
+
+    monkeypatch.setenv("DAVINCI_RESOLVE_MCP_INSTALL_ROOT", str(tmp_path))
+    assert resolve_mcp.install_root() == tmp_path
+    assert resolve_mcp.serve([]) == 1  # not installed there: clean error, nothing on stdout
+    cfg = json.loads((ROOT / ".mcp.json").read_text())
+    assert cfg["mcpServers"]["davinci-resolve"]["args"][-1] == "resolve-mcp"
