@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from . import timeline as T
-from .media import need
+from .media import filter_script_args, need
 from .videofx import clip_vfilter, media_grade, rel_for_filter
 from .project import ROOT, Project, media_kind, read_json
 
@@ -108,7 +108,7 @@ def build_cmd(project: Project, tl: dict, out: Path, preset: str = "preview",
     out.parent.mkdir(parents=True, exist_ok=True)
     fc_file = project.path("work", "render_filter.txt")
     fc_file.write_text(";\n".join(fc))
-    cmd = ["ffmpeg", "-y", "-v", "error", "-stats", *args, "-filter_complex_script", str(fc_file.resolve()),
+    cmd = ["ffmpeg", "-y", "-v", "error", "-stats", *args, *filter_script_args(fc_file.resolve()),
            "-map", "[vout]"]
     if alabels:
         cmd += ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]

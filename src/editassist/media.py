@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -12,6 +14,20 @@ def need(binary: str) -> str:
     if not path:
         raise SystemExit(f"`{binary}` not found on PATH. Run ./setup.sh")
     return path
+
+
+@lru_cache(maxsize=None)
+def ffmpeg_major() -> int:
+    """Major version of the ffmpeg on PATH; git builds ("N-12345-g...") count as newest."""
+    out = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True).stdout
+    m = re.match(r"ffmpeg version n?(\d+)\.", out)
+    return int(m.group(1)) if m else 99
+
+
+def filter_script_args(path: Path) -> list[str]:
+    """Read -filter_complex from a file. ffmpeg 7 added the generic `-/option file` form and later
+    releases removed -filter_complex_script; Ubuntu 24.04 still ships 6.1, which only has the old one."""
+    return ["-/filter_complex", str(path)] if ffmpeg_major() >= 7 else ["-filter_complex_script", str(path)]
 
 
 def run(cmd: list[str], quiet: bool = True, cwd=None) -> subprocess.CompletedProcess:

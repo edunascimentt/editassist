@@ -68,8 +68,10 @@ def new(project: Project, seconds: float = 50, fps: int = 30, size: str = "1920x
     if (d / "src" / "beats.json").exists():
         raise SystemExit(f"{d} already exists (delete it to start over)")
     shutil.copytree(TEMPLATE, d, ignore=shutil.ignore_patterns("node_modules", "out", "*.log"))
+    # git doesn't keep the template's empty public/ folders, so a fresh clone has none of them
+    for sub in ("fonts", "audio", "sfx", "vo"):
+        (d / "public" / sub).mkdir(parents=True, exist_ok=True)
     fonts = d / "public" / "fonts"
-    fonts.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path(font_black).expanduser() if font_black else ROOT / "assets" / "fonts" / "Montserrat-Black.ttf", fonts / "Brand-Black.ttf")
     shutil.copy2(Path(font_bold or font_black).expanduser() if (font_bold or font_black) else ROOT / "assets" / "fonts" / "Montserrat-Bold.ttf",
                  fonts / "Brand-Bold.ttf")
