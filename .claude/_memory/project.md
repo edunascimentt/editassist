@@ -11,7 +11,7 @@
 **Stack:** Python 3.12 via uv (`src/editassist/`, CLI `ea`), ffmpeg/ffprobe, faster-whisper, OpenCV (YuNet face model in `assets/models/`), OpenTimelineIO + FCP7/FCPXML adapters, Pillow/numpy; Remotion 4 (Node) in `remotion/`; DaVinci Resolve MCP (`.mcp.json`).
 **Run / build:** `./setup.sh` (macOS/Linux) or `setup.ps1` (Windows); then `claude` in the repo. Tools: `uv run ea <command>`; check: `uv run ea doctor`.
 **Tests:** `uv sync --extra dev && uv run pytest -q` (synthetic media, no keys, no Whisper download); CI on ubuntu/macos/windows in `.github/workflows/ci.yml`.
-**Repo / hosting:** local git repo; ~ not pushed to GitHub yet (2026-10-02).
+**Repo / hosting:** public on GitHub, github.com/edunascimentt/editassist (since 2026-10-05); CI runs on every push.
 **Constraints:** must run the same on macOS and Windows; user projects (`projects/`) and personal editing memory are never committed; paid APIs (ElevenLabs, Higgsfield) need user confirmation before spending.
 
 ## Context that doesn't fit above

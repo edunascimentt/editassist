@@ -5,7 +5,7 @@
 
 ## Active priorities
 
-1. Push to GitHub so CI proves Windows (never run on real Windows yet).
+1. Make CI green: first run (2026-10-05) failed on ubuntu/macos/windows while local passes: `test_launch_scaffold_audit_and_music_tools` (`templates/launch/public/` is an empty dir, git doesn't track it) and `test_render_with_fx_and_burned_captions` (ffmpeg "Error splitting the argument list: Option not found", ~ libass caption path).
 2. First real edit with real footage end to end (everything so far tested on synthetic media).
 
 ## Not yet verified (as of 2026-10-02)
@@ -19,5 +19,5 @@
 
 ## Blocked / waiting on
 
-- Windows verification — waiting on the GitHub push (CI) or a Windows machine.
+- Windows verification — CI now runs on windows-latest; waiting on the fixes above.
 - Higgsfield live test — waiting on API credentials in `.env`.
