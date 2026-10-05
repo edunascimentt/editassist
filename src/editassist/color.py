@@ -173,7 +173,7 @@ def write_lut(path: Path, ops: list[dict], project: Project | None = None, title
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [f'TITLE "{title}"', f"LUT_3D_SIZE {SIZE}", "DOMAIN_MIN 0.0 0.0 0.0", "DOMAIN_MAX 1.0 1.0 1.0"]
     lines += [f"{a:.6f} {bb:.6f} {c:.6f}" for a, bb, c in out]
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 
 

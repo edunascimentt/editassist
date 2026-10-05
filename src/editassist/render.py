@@ -107,7 +107,7 @@ def build_cmd(project: Project, tl: dict, out: Path, preset: str = "preview",
     out = out.resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
     fc_file = project.path("work", "render_filter.txt")
-    fc_file.write_text(";\n".join(fc))
+    fc_file.write_text(";\n".join(fc), encoding="utf-8")
     cmd = ["ffmpeg", "-y", "-v", "error", "-stats", *args, *filter_script_args(fc_file.resolve()),
            "-map", "[vout]"]
     if alabels:

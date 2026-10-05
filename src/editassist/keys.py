@@ -128,4 +128,4 @@ def set_key(name: str, value: str) -> dict:
 
 def is_gitignored() -> bool:
     gi = ROOT / ".gitignore"
-    return gi.exists() and any(l.strip() in (".env", "/.env") for l in gi.read_text().splitlines())
+    return gi.exists() and any(l.strip() in (".env", "/.env") for l in gi.read_text(encoding="utf-8").splitlines())

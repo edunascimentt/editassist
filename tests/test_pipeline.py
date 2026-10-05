@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -303,14 +305,22 @@ def test_keys_written_masked_and_private(tmp_path, monkeypatch):
         assert oct(os.stat(env).st_mode)[-3:] == "600"
 
 
+def _bash() -> str | None:
+    # on Windows `bash` on PATH is often WSL's launcher, which can't see Windows paths; Claude Code
+    # runs hooks with Git Bash there, so the test does too
+    git_bash = Path(r"C:\Program Files\Git\bin\bash.exe")
+    return (str(git_bash) if git_bash.exists() else None) if os.name == "nt" else shutil.which("bash")
+
+
 def test_first_run_hook(tmp_path):
-    if not shutil.which("bash"):
+    bash = _bash()
+    if not bash:
         pytest.skip("bash not available")
     script = ROOT / ".claude" / "first-run-check.sh"
-    env = {**__import__("os").environ, "CLAUDE_PROJECT_DIR": str(tmp_path)}
-    r = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
+    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(tmp_path)}
+    r = subprocess.run([bash, str(script)], env=env, capture_output=True, text=True, encoding="utf-8")
     d = json.loads(r.stdout)
     assert "editassist-setup" in d["hookSpecificOutput"]["additionalContext"]
     (tmp_path / ".editassist").mkdir()
     (tmp_path / ".editassist" / "setup.json").write_text('{"status": "done"}')
-    assert subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True).stdout == ""
+    assert subprocess.run([bash, str(script)], env=env, capture_output=True, text=True).stdout == ""

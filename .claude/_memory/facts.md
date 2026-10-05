@@ -45,5 +45,7 @@
 - An accent word on a background that IS the accent colour disappears; `accentOn()` swaps to paper/ink.
 - Incoming beats must show text from their first frame (title `at: 0`), or the wipe reveals a blank flood.
 - One-pass and even two-pass linear `loudnorm` miss the target on short or peaky audio (-17.8 / -20.3 LUFS); `launch.normalize()` = measured gain + true-peak limiter, iterated (±0.5 LU).
+- ffmpeg 6.1 (Ubuntu 24.04) `acrossfade` truncates the whole mix when one input is shorter than ~50 ms (verified in Docker 2026-10-05); `stretch_music` splices whole bars on detected downbeats so no sliver exists.
+- Write and read text with `encoding="utf-8"` everywhere: Windows defaults to cp1252 and broke transcripts with accents (CI 2026-10-05).
 - `stretch-music` must splice from the ORIGINAL bed (`music.source`), or repeated stretches compound and overwrite their input.
 - Remotion 4.0.532 `<Sequence playbackRate>` slows the picture; audio stays outside it (verified: 120 bpm bed still 120 bpm in a 1.5x-slowed render).

@@ -523,18 +523,18 @@ def stretch_music(project: Project, seconds: float, intro_bars: int = 1, outro_b
     if len(db) < intro_bars + outro_bars + 3:
         raise SystemExit("not enough bars detected to splice safely")
     dur = probe(src)["duration"]
-    g0, g1 = db[intro_bars], db[-outro_bars - 1]
+    groove = db[intro_bars:len(db) - outro_bars]  # downbeats from the groove's start to the outro's
+    g0, g1 = groove[0], groove[-1]
     bar = (db[-1] - db[0]) / max(1, len(db) - 1)
-    glen = g1 - g0
-    # groove time needed between the intro and the outro, rounded to whole bars
-    need = max(bar, round((seconds - g0 - (dur - g1)) / bar) * bar)
+    # whole bars of groove needed between the intro and the outro; every splice sits on a detected
+    # downbeat, so no sliver is left over (ffmpeg 6 acrossfade truncates the mix on inputs < ~50 ms)
+    reps = left = max(1, round((seconds - g0 - (dur - g1)) / bar))
     parts = [(0.0, g0)]
-    while need > 1e-3:
-        take = min(glen, need)
-        parts.append((g0, g0 + take))
-        need -= take
+    while left:
+        k = min(len(groove) - 1, left)
+        parts.append((g0, groove[k]))
+        left -= k
     parts.append((g1, dur))
-    reps = round((sum(e - a for a, e in parts[1:-1])) / bar)
     fc, labels = [], []
     for i, (a, e) in enumerate(parts):
         fc.append(f"[0:a]atrim={a:.4f}:{e:.4f},asetpts=PTS-STARTPTS[p{i}]")

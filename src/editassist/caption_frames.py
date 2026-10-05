@@ -88,5 +88,5 @@ def build(project: Project, W: int, H: int, captions_file: str = "work/captions.
         t = b
     lines += ["file blank.png", "duration 1.000", "file blank.png"]  # last entry needs a trailing file
     lst = out / "captions.ffconcat"
-    lst.write_text("\n".join(lines) + "\n")
+    lst.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return lst

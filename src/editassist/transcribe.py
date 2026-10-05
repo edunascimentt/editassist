@@ -112,7 +112,7 @@ def transcribe(project: Project, model: str | None = None, language: str | None 
         write_json(out, {"media": sid, "language": info.language, "model": model, "segments": segs,
                          "possibly_missed": missed})
         lines = [f"[{fmt_ts(s['start'])} - {fmt_ts(s['end'])}] {s['text']}" for s in segs]
-        out.with_suffix(".txt").write_text("\n".join(lines) + "\n")
+        out.with_suffix(".txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
         done.append(sid)
     return done
 
