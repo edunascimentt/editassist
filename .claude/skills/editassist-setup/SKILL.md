@@ -74,11 +74,10 @@ Offer to download now so the first edit doesn't stall:
 Slow machine or little disk: set `EA_WHISPER_MODEL=small` in `.env` (faster, less accurate; the
 transcribe skill warns when it drops passages). NVIDIA GPU on Windows/Linux is used automatically.
 
-## 6. Editing preferences (2-3 short questions, skippable)
-Main platform (YouTube / Reels-TikTok / podcast), default frame (16:9 or 9:16), caption style
-(clean / bold / boxed), how tight cuts should be (relaxed / normal / tight → min silence 0.7 / 0.45 / 0.3),
-language of their videos, music taste. Write them to `<memory>/preferences.md` with today's date
-(style-profile rules). Everything can change later just by telling the editor.
+## 6. Editing preferences (skippable)
+Run the preferences-quiz skill in **Quick** mode (editor, platform + frame, cut tightness), and offer
+the Full quiz now or later ("me faz o questionário de preferências"). It writes `<memory>/preferences.md`.
+Everything can change later just by telling the editor.
 
 ## 7. Verify and hand off
 - `uv run ea selftest` (test suite on synthetic media, ~1 min; no keys, no downloads).

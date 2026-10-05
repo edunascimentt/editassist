@@ -10,7 +10,7 @@
 
 ## Where things live
 - One module per command group in `src/editassist/`; `cli.py` wires them. `videofx.py` = per-clip video filter chain shared by render and bake.
-- Skills: `.claude/skills/<name>/SKILL.md` (29). Codex reads the same via `AGENTS.md`.
+- Skills: `.claude/skills/<name>/SKILL.md` (32, 2026-10-05). Codex reads the same via `AGENTS.md`.
 - Bundled assets: `assets/fonts/` (Montserrat, OFL) and `assets/models/face_detection_yunet_2023mar.onnx` (MIT). Captions/thumbnails depend on them; don't swap for system fonts.
 - Per-project data: `projects/<name>/{input,work,output}` + `timeline.json`; `work/media.json` is the media catalog every command reads.
 - Editing memory (user taste) is NOT in this repo: `uv run ea memory` prints its folder (memory-os global tier, else gitignored `memory/`).

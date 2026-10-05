@@ -14,7 +14,7 @@ chapters and metadata.
  │  Claude Code / Codex  (reads CLAUDE.md)  │
  │        │ follows                         │
  │        ▼                                 │
- │  skills  (.claude/skills/*, 31 recipes)  │      ┌─ DaVinci Resolve (.otio, auto-import + LUTs)
+ │  skills  (.claude/skills/*, 32 recipes)  │      ┌─ DaVinci Resolve (.otio, auto-import + LUTs)
  │        │ calls                           │      │
  │        ▼                                 │      ├─ Premiere Pro (.xml)
  │  `ea` CLI  ── ffmpeg · Whisper ·         │ ───► │
@@ -147,6 +147,7 @@ project tier for personal data.
 | Meta | `qa` | gaps, flash frames, mid-word cuts, loudness, black frames |
 | | `review` | apply feedback on a version |
 | | `style-profile` | maintain the memory: preferences, named styles, vocabulary |
+| | `preferences-quiz` | short questionnaire that fills the user's preferences (quick, full or one section) |
 
 ## CLI
 
