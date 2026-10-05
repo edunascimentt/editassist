@@ -236,7 +236,8 @@ def main(argv: list[str] | None = None) -> None:
                                       "--install sets up memory-os from vendor/memory-os")
     p.add_argument("--init", action="store_true"); p.add_argument("--install", action="store_true")
 
-    sub.add_parser("doctor", help="check that every dependency and key is in place")
+    p = sub.add_parser("doctor", help="check that every dependency and key is in place")
+    p.add_argument("--json", action="store_true", help="machine-readable (desktop app)")
 
     a = ap.parse_args(argv)
 
@@ -498,7 +499,7 @@ def main(argv: list[str] | None = None) -> None:
                                           if memory_dir().exists() else []})
     elif a.cmd == "doctor":
         from .doctor import doctor
-        ok = doctor()
+        ok = doctor(a.json)
         sys.exit(0 if ok else 1)
 
 

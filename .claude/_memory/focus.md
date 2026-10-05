@@ -8,7 +8,9 @@
 1. Keep CI green on ubuntu/macos/windows (first run 2026-10-05 failed: empty launch `public/` dirs and the removed `-filter_complex_script`; both fixed the same day).
 2. First real edit with real footage end to end (everything so far tested on synthetic media).
 
-## Not yet verified (as of 2026-10-02)
+## Not yet verified (as of 2026-10-05)
+
+- Desktop app: a successful agent turn (Claude and Codex were only run up to auth with invalid keys), the Codex ChatGPT login flow, Windows build/run, signed/notarized macOS build.
 
 - Opening exports inside Resolve, Premiere and After Effects (AE only tested against `tests/ae_mock.js`).
 - `ea export --open` creating a project in Resolve (only the scripting connection was tested).

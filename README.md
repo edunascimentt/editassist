@@ -30,6 +30,14 @@ chapters and metadata.
 
 Works on **macOS, Windows and Linux** (CI runs the test suite on all three).
 
+## Desktop app (macOS)
+
+Prefer a window to a terminal? [`app/`](app/README.md) is the same editor as an Electron app: projects,
+drag-and-drop media, chat with the editor, preview player, timeline, one-click exports, and a setup
+wizard that installs the tools and validates every key. It runs Claude with an Anthropic API key
+(claude.ai sign-in isn't allowed in third-party apps) or Codex with a ChatGPT account or OpenAI key.
+Build it with `cd app && npm install && npm run dist:mac`.
+
 ## Setup
 
 You need [Claude Code](https://claude.com/claude-code) (or Codex). The setup script installs the

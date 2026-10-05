@@ -50,3 +50,12 @@ templates, installer) is copied into `vendor/memory-os/` so it is part of the pr
 with the clone, the version is pinned with the code, and `ea memory --install` sets up the private tier
 without a download (seeding in Python, so it works on Windows; `install.sh` adds the bash-only parts).
 Private memory still lives outside the repo in `~/.memory-os/memory/`.
+
+## 2026-10-05 — Desktop app: Electron, same engine, two agents
+`app/` drives the unchanged engine (CLAUDE.md, skills, `ea`) from a window, so terminal and app never
+diverge. Electron + React: one codebase for macOS and Windows, and the Agent SDK is TypeScript.
+Claude runs only on the user's Anthropic API key (Anthropic doesn't allow third-party apps to offer
+claude.ai sign-in): own `CLAUDE_CONFIG_DIR`, `apiKeySource` checked. Codex uses OpenAI's own
+`codex login` (ChatGPT account) or an OpenAI key. Keys live in the OS keychain (`safeStorage`) and
+reach the engine only as environment variables. Exports and final renders go through the agent (it
+runs QA and bake first); quick previews call `ea render` directly.

@@ -9,6 +9,7 @@
 **Name:** editassist
 **What it is / goal:** AI video editor. Claude Code (or Codex) is the engine: it follows `CLAUDE.md` + `.claude/skills/*` and drives the `ea` CLI; output is an editable Resolve/Premiere/AE project or a finished mp4.
 **Stack:** Python 3.12 via uv (`src/editassist/`, CLI `ea`), ffmpeg/ffprobe, faster-whisper, OpenCV (YuNet face model in `assets/models/`), OpenTimelineIO + FCP7/FCPXML adapters, Pillow/numpy; Remotion 4 (Node) in `remotion/`; DaVinci Resolve MCP (`.mcp.json`).
+**Desktop app:** `app/` (Electron + React + TypeScript, 2026-10-05): same engine driven from a window; Claude via Agent SDK (Anthropic API key only), Codex via Codex SDK (ChatGPT account or OpenAI key). macOS dmg builds; Windows code paths untested. Details: `app/README.md`.
 **Run / build:** `./setup.sh` (macOS/Linux) or `setup.ps1` (Windows); then `claude` in the repo. Tools: `uv run ea <command>`; check: `uv run ea doctor`.
 **Tests:** `uv sync --extra dev && uv run pytest -q` (synthetic media, no keys, no Whisper download); CI on ubuntu/macos/windows in `.github/workflows/ci.yml`.
 **Repo / hosting:** public on GitHub, github.com/edunascimentt/editassist (since 2026-10-05); CI runs on every push.

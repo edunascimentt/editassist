@@ -1,0 +1,59 @@
+appId: dev.editassist.app
+productName: editassist
+copyright: Copyright © 2026 editassist contributors
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - package.json
+# the agent SDKs spawn native binaries, which can't run from inside an asar archive
+asarUnpack:
+  - node_modules/@anthropic-ai/**
+  - node_modules/@openai/**
+# the editing engine (ea CLI, skills, assets) ships next to the app and is copied to a writable
+# folder on first launch (see src/main/engine.ts)
+extraResources:
+  - from: ..
+    to: engine
+    filter:
+      - src/**
+      - .claude/skills/**
+      - .claude/_memory/**
+      - .claude/settings.json
+      - .claude/*.sh
+      - CLAUDE.md
+      - AGENTS.md
+      - README.md
+      - LICENSE
+      - .mcp.json
+      - .env.example
+      - .python-version
+      - pyproject.toml
+      - uv.lock
+      - assets/**
+      - memory.template/**
+      - vendor/**
+      - templates/**
+      - remotion/**
+      - "!remotion/node_modules/**"
+      - "!remotion/out/**"
+      - "!templates/**/node_modules/**"
+      - "!**/__pycache__/**"
+      - "!**/.DS_Store"
+mac:
+  target:
+    - target: dmg
+      arch: [arm64]
+  category: public.app-category.video
+  icon: build/icon.png
+  identity: null # unsigned until there is an Apple Developer ID; first open: right click > Open
+  hardenedRuntime: false
+dmg:
+  title: editassist
+win:
+  target: nsis
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

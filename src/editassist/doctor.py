@@ -10,7 +10,7 @@ from pathlib import Path
 from .project import ROOT, memory_dir
 
 
-def doctor() -> bool:
+def doctor(as_json: bool = False) -> bool:
     from dotenv import load_dotenv
 
     load_dotenv(ROOT / ".env")
@@ -20,7 +20,7 @@ def doctor() -> bool:
     def row(name, good, detail, required=True):
         nonlocal ok
         ok &= good or not required
-        rows.append(f"  [{'ok' if good else ('!!' if required else '--')}] {name}: {detail}")
+        rows.append({"name": name, "ok": bool(good), "required": required, "detail": detail})
 
     for b in ("ffmpeg", "ffprobe"):
         p = shutil.which(b)
@@ -59,7 +59,12 @@ def doctor() -> bool:
     row("Resolve MCP", venv_python(root).exists() and (root / "src" / "server.py").exists(),
         f"live Resolve control via .mcp.json (davinci-resolve-mcp {VERSION}); `uv run ea resolve-mcp --setup`",
         required=False)
+    if as_json:  # for the desktop app
+        import json
+
+        print(json.dumps({"ready": ok, "os": platform.system(), "arch": platform.machine(), "checks": rows}, indent=2))
+        return ok
     print(f"editassist doctor ({platform.system()} {platform.machine()})")
-    print("\n".join(rows))
+    print("\n".join(f"  [{'ok' if r['ok'] else ('!!' if r['required'] else '--')}] {r['name']}: {r['detail']}" for r in rows))
     print("ready" if ok else "missing required pieces: run setup again")
     return ok

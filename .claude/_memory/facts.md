@@ -16,6 +16,8 @@
 - memory-os lives in `vendor/memory-os/` (upstream commit ba838aa, 2026-10-05); `ea memory --install` copies it to `~/.memory-os` (leaves a git clone alone); CI runs its `check` on `.claude/_memory/`.
 - Editing memory (user taste) is NOT in this repo: `uv run ea memory` prints its folder (memory-os global tier, else gitignored `memory/`).
 
+- Desktop app: `app/src/main` (engine, agents, keys, projects), `app/src/renderer` (React UI), `app/src/shared/types.ts` (IPC contract, `window.ea`). Packaged engine lives in `~/Library/Application Support/editassist/engine`, its `projects/` links to the user's folder (`~/Movies/editassist`).
+
 ## Conventions
 - Every `ea` command prints JSON (or short text) for the model to read; errors are `SystemExit` with a human message.
 - Paths inside json are project-relative and POSIX (`Project.rel`), so Windows and macOS projects match.
@@ -48,4 +50,10 @@
 - ffmpeg 6.1 (Ubuntu 24.04) `acrossfade` truncates the whole mix when one input is shorter than ~50 ms (verified in Docker 2026-10-05); `stretch_music` splices whole bars on detected downbeats so no sliver exists.
 - Write and read text with `encoding="utf-8"` everywhere: Windows defaults to cp1252 and broke transcripts with accents (CI 2026-10-05).
 - `stretch-music` must splice from the ORIGINAL bed (`music.source`), or repeated stretches compound and overwrite their input.
+- Agent SDK (0.3.289) retries a 401 ten times with backoff (~minutes): the app watches `system/api_retry` and aborts on 401/403 (2026-10-05).
+- Agent SDK ignores the `.claude/settings.json` allowlist until the workspace is trusted in its config dir: the app writes `projects[<engine>].hasTrustDialogAccepted` into its own `CLAUDE_CONFIG_DIR/.claude.json`.
+- The Codex SDK has no interactive approvals; `error` events "Reconnecting… n/5" are transient, a 401 is fatal (app aborts).
+- npm 11 blocks install scripts by default: `app/package.json` `allowScripts` approves electron and esbuild; Electron then downloads its binary on first run.
+- GUI apps on macOS don't inherit the shell PATH: `app/src/main/paths.ts toolPath()` adds Homebrew and `~/.local/bin` for every child process.
+- Native agent binaries must be in `asarUnpack` (electron-builder) and resolved via `app.asar.unpacked` (`paths.ts claudeExecutable/codexExecutable`).
 - Remotion 4.0.532 `<Sequence playbackRate>` slows the picture; audio stays outside it (verified: 120 bpm bed still 120 bpm in a 1.5x-slowed render).
