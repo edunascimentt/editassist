@@ -223,6 +223,25 @@ def test_editing_memory_tiers(monkeypatch, tmp_path):
     assert "editassist/" in (home / ".memory-os" / "memory" / "_index.md").read_text(encoding="utf-8")
 
 
+def test_install_memory_os_from_vendor(monkeypatch, tmp_path):
+    import editassist.project as P
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(P.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.delenv("EA_MEMORY_DIR", raising=False)
+    monkeypatch.setattr(P, "LOCAL_MEMORY", tmp_path / "repo_memory")
+    res = P.install_memory_os(run_installer=False)
+    store = home / ".memory-os"
+    assert (store / "bin" / "memory-os").exists() and (store / "CLAUDE.md").exists()
+    assert (store / "memory" / "me.md").exists() and (store / "memory" / "journal" / "log.md").exists()
+    assert P.memory_dir() == store / "memory" / "editassist" and res["editing_memory"]["created"]
+    # re-running refreshes the system files and never touches what the user wrote
+    (store / "memory" / "me.md").write_text("me\n", encoding="utf-8")
+    P.install_memory_os(run_installer=False)
+    assert (store / "memory" / "me.md").read_text(encoding="utf-8") == "me\n"
+
+
 def test_launch_scaffold_audit_and_music_tools(project, media_dir):
     from editassist import launch as L
 

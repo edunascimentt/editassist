@@ -232,8 +232,9 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("selftest", help="run the test suite on synthetic media (no keys, no downloads)")
 
-    p = sub.add_parser("memory", help="where this user's editing memory lives; --init seeds/migrates it")
-    p.add_argument("--init", action="store_true")
+    p = sub.add_parser("memory", help="where this user's editing memory lives; --init seeds/migrates it, "
+                                      "--install sets up memory-os from vendor/memory-os")
+    p.add_argument("--init", action="store_true"); p.add_argument("--install", action="store_true")
 
     sub.add_parser("doctor", help="check that every dependency and key is in place")
 
@@ -491,8 +492,8 @@ def main(argv: list[str] | None = None) -> None:
         r = sp.call(["uv", "run", "--extra", "dev", "pytest", "-q"], cwd=str(ROOT))
         sys.exit(r)
     elif a.cmd == "memory":
-        from .project import init_memory, memory_dir
-        out(init_memory() if a.init else {"dir": str(memory_dir()),
+        from .project import init_memory, install_memory_os, memory_dir
+        out(install_memory_os() if a.install else init_memory() if a.init else {"dir": str(memory_dir()),
                                           "files": sorted(str(f.relative_to(memory_dir())) for f in memory_dir().rglob("*.md"))
                                           if memory_dir().exists() else []})
     elif a.cmd == "doctor":

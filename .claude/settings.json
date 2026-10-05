@@ -16,7 +16,8 @@
       "Edit(.claude/_memory/**)",
       "Write(.claude/_memory/**)",
       "Bash(memory-os check:*)",
-      "Bash(memory-os status:*)"
+      "Bash(memory-os status:*)",
+      "Bash(bash vendor/memory-os/bin/memory-os check:*)"
     ]
   },
   "hooks": {

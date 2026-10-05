@@ -29,8 +29,9 @@ Re-run `uv run ea doctor` until required rows are `[ok]`.
 ## 2. memory-os (their private memory across repos and Claude accounts)
 If `~/.memory-os` is missing, explain in one line what it gives (their taste follows them; the
 project memory in `.claude/_memory/` works without it) and offer to install:
-`git clone https://github.com/edunascimentt/memory-os.git ~/.memory-os && ~/.memory-os/install.sh`
-(on Windows: Git Bash or WSL). Then `uv run ea memory --init` (migrates anything already in `memory/`).
+`uv run ea memory --install`. It ships with this repo (`vendor/memory-os`, no download), seeds the
+private store, migrates anything already in `memory/`, and runs its `install.sh` for the `memory-os`
+CLI and Claude account hooks (Windows: that last part needs Git Bash; the memory works without it).
 Suggest they fill `~/.memory-os/memory/me.md` with who they are; don't write it for them.
 
 ## 3. API keys

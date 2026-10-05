@@ -5,7 +5,7 @@
 
 ## Active priorities
 
-1. Make CI green: first run (2026-10-05) failed on ubuntu/macos/windows while local passes: `test_launch_scaffold_audit_and_music_tools` (`templates/launch/public/` is an empty dir, git doesn't track it) and `test_render_with_fx_and_burned_captions` (ffmpeg "Error splitting the argument list: Option not found", ~ libass caption path).
+1. Keep CI green on ubuntu/macos/windows (first run 2026-10-05 failed: empty launch `public/` dirs and the removed `-filter_complex_script`; both fixed the same day).
 2. First real edit with real footage end to end (everything so far tested on synthetic media).
 
 ## Not yet verified (as of 2026-10-02)

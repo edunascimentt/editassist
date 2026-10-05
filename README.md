@@ -99,19 +99,19 @@ that font") is saved to your editing memory and becomes the default next time.
 
 ## Memory
 
-editassist uses [memory-os](https://github.com/edunascimentt/memory-os), two tiers split by who may
-read them:
+editassist ships with [memory-os](https://github.com/edunascimentt/memory-os) in `vendor/memory-os/`:
+two tiers split by who may read them.
 
 | | where | holds | shared? |
 |---|---|---|---|
 | **Your editing taste** | memory-os global tier, `~/.memory-os/memory/editassist/` | pacing, caption style, music, looks, vocabulary, named styles, delivery log | private: yours only, every Claude account you use, never committed |
 | **Project knowledge** | `.claude/_memory/` in this repo | how the code works, gotchas, decisions, what's unverified | committed: everyone who clones gets it |
 
-Install memory-os once (`git clone https://github.com/edunascimentt/memory-os.git ~/.memory-os &&
-~/.memory-os/install.sh`); a session-start notice reminds you if it's missing. Without it, your taste
+Install your private tier once with `uv run ea memory --install` (copies `vendor/memory-os` to
+`~/.memory-os`, no download); a session-start notice reminds you if it's missing. Without it, your taste
 is kept in the gitignored `memory/` folder instead and `ea memory --init` migrates it later.
-`uv run ea memory` shows where yours lives. Before sharing the repo, `memory-os check` scans the
-project tier for personal data.
+`uv run ea memory` shows where yours lives. `bash vendor/memory-os/bin/memory-os check` scans the
+project tier for personal data; CI runs it on every push.
 
 ## Skills
 

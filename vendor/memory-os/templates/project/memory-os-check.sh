@@ -13,24 +13,23 @@ CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 [ -f "$HOME/.memory-os/CLAUDE.md" ] && exit 0
 [ -f "$CONFIG_DIR/memory-os/CLAUDE.md" ] && exit 0
 
-INSTALL="uv run ea memory --install"  # from vendor/memory-os in this repo, no download
+REPO="https://github.com/edunascimentt/memory-os"
 
 USER_MSG="This repo uses memory-os, and it isn't installed on this machine.
 
 The project memory in .claude/_memory/ already works without it — Claude reads it either
 way. Installing adds your own private layer on top (who you are, how you like to work,
-your accounts) that follows you across repos and is never committed. It ships with this
-repo (vendor/memory-os); install it with:
+your accounts) that follows you across repos and is never committed:
 
-  $INSTALL
+  git clone $REPO.git ~/.memory-os && ~/.memory-os/install.sh
 
 Ask Claude to walk you through it, or ignore this — nothing here is blocked."
 
 MODEL_CTX="memory-os is NOT installed on this machine (~/.memory-os is missing), so only
 this repo's project tier (.claude/_memory/) is available — there is no global tier to read.
 Do not go looking for ~/.memory-os/memory/ files; they do not exist here.
-If the user asks about it, the install is: $INSTALL (copies vendor/memory-os to ~/.memory-os)
-Do not run that yourself unless they ask you to. Full docs: vendor/memory-os/README.md"
+If the user asks about it, the install is: git clone $REPO.git ~/.memory-os && ~/.memory-os/install.sh
+Do not run that yourself unless they ask you to. Full docs: $REPO"
 
 # JSON-encode without depending on jq: escape backslashes and quotes, fold newlines.
 esc() {

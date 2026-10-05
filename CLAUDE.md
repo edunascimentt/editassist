@@ -81,4 +81,6 @@ update the `_index.md` hook whenever a file changes substantially.
 **This tier is committed and read by everyone with repo access.** Never write personal
 data into it — no personal emails, no absolute paths from someone's machine, no account
 logins, org/team IDs, or secrets. Anything personal belongs in the author's private global
-memory instead. Full spec: `~/.memory-os/CLAUDE.md` (install: github.com/edunascimentt/memory-os).
+memory instead. Full spec: `vendor/memory-os/CLAUDE.md`. memory-os ships with this repo (`vendor/memory-os`);
+install a person's private tier with `uv run ea memory --install`, and run
+`bash vendor/memory-os/bin/memory-os check` before committing memory changes (CI runs it too).

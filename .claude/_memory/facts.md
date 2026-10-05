@@ -13,6 +13,7 @@
 - Skills: `.claude/skills/<name>/SKILL.md` (32, 2026-10-05). Codex reads the same via `AGENTS.md`.
 - Bundled assets: `assets/fonts/` (Montserrat, OFL) and `assets/models/face_detection_yunet_2023mar.onnx` (MIT). Captions/thumbnails depend on them; don't swap for system fonts.
 - Per-project data: `projects/<name>/{input,work,output}` + `timeline.json`; `work/media.json` is the media catalog every command reads.
+- memory-os lives in `vendor/memory-os/` (upstream commit ba838aa, 2026-10-05); `ea memory --install` copies it to `~/.memory-os` (leaves a git clone alone); CI runs its `check` on `.claude/_memory/`.
 - Editing memory (user taste) is NOT in this repo: `uv run ea memory` prints its folder (memory-os global tier, else gitignored `memory/`).
 
 ## Conventions
@@ -20,6 +21,8 @@
 - Paths inside json are project-relative and POSIX (`Project.rel`), so Windows and macOS projects match.
 - ffmpeg runs with `cwd=project dir` and filter args use relative paths: Windows drive letters (`C:`) break ffmpeg filter syntax (`:` is a separator).
 - Times in timeline.json are seconds; `in`/`out` source time, `start` record time. Exports convert to frames from absolute times (no cumulative rounding drift).
+- `-filter_complex_script` is gone in the newest ffmpeg; `media.filter_script_args()` uses `-/filter_complex <file>` on ffmpeg 7+ and the old option on 6.x (Ubuntu 24.04 apt).
+- Template folders that start empty (`templates/launch/public/*`) don't survive git; code that needs them must `mkdir` them (`launch.new`).
 - `ea resolve-mcp` must never print to stdout (it is the MCP JSON-RPC channel).
 
 ## Gotchas (learned the hard way, 2026-10-01/02)

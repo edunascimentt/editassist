@@ -41,3 +41,7 @@ jobs:
 
       - name: tests
         run: uv run pytest -q
+
+      - name: shared memory has nothing personal
+        if: runner.os != 'Windows'
+        run: bash vendor/memory-os/bin/memory-os check

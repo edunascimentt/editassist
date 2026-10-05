@@ -15,13 +15,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PROJECTS = ROOT / "projects"
 LOCAL_MEMORY = ROOT / "memory"
+MEMORY_OS = ROOT / "vendor" / "memory-os"  # memory-os ships with the repo (upstream github.com/edunascimentt/memory-os)
 
 
 def memory_dir() -> Path:
     """Where this user's EDITING memory lives (taste, styles, vocabulary, project log):
     1. EA_MEMORY_DIR if set
     2. memory-os global tier: ~/.memory-os/memory/editassist/  (private, shared by all the
-       user's Claude accounts, never committed; see github.com/edunascimentt/memory-os)
+       user's Claude accounts, never committed; system in vendor/memory-os, `ea memory --install`)
     3. <repo>/memory/  (gitignored fallback when memory-os isn't installed)
     Codebase knowledge is separate: .claude/_memory/ (memory-os project tier, committed)."""
     import os
@@ -71,6 +72,41 @@ def init_memory() -> dict:
     tier = "memory-os global (private)" if dst.parent == Path.home() / ".memory-os" / "memory" else (
         "EA_MEMORY_DIR" if dst != LOCAL_MEMORY else "local fallback (gitignored)")
     return {"dir": str(dst), "tier": tier, "created": created, "migrated": migrated}
+
+def install_memory_os(run_installer: bool = True) -> dict:
+    """Install memory-os from vendor/memory-os into ~/.memory-os, no network. The private memory/
+    store is seeded here (same as its install.sh) so it works on every OS; install.sh then adds
+    the parts that need bash (CLI on PATH, Claude account hooks), skipped on Windows without
+    Git Bash. A git clone already at ~/.memory-os is left alone; a copied install gets its system
+    files refreshed and keeps memory/."""
+    import os
+    import shutil
+    import subprocess
+
+    dst = Path.home() / ".memory-os"
+    res: dict = {"store": str(dst)}
+    if (dst / ".git").exists():
+        res["system"] = "git clone, left as is (update with `memory-os update`)"
+    else:
+        shutil.copytree(MEMORY_OS, dst, dirs_exist_ok=True, ignore=shutil.ignore_patterns("memory"))
+        res["system"] = "copied from vendor/memory-os"
+    store = dst / "memory"
+    if not store.is_dir():
+        (store / "journal").mkdir(parents=True)
+        for f in (dst / "templates" / "global").glob("*.md"):
+            shutil.copy2(f, store / ("journal" if f.name == "log.md" else "") / f.name)
+        res["seeded"] = True
+    bash = shutil.which("bash")
+    if not run_installer:
+        res["install_sh"] = "skipped"
+    elif os.name == "nt" or not bash:
+        res["install_sh"] = "skipped: run ~/.memory-os/install.sh from Git Bash for the CLI and account hooks"
+    else:
+        r = subprocess.run([bash, str(dst / "install.sh")], capture_output=True, text=True,
+                           env={**os.environ, "HOME": str(Path.home())})
+        res["install_sh"] = "ok" if r.returncode == 0 else "failed: " + r.stderr.strip()[-300:]
+    return res | {"editing_memory": init_memory()}
+
 
 MEDIA_EXT = {
     "video": {".mp4", ".mov", ".mkv", ".mxf", ".avi", ".m4v", ".webm", ".mts"},

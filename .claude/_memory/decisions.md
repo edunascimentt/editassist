@@ -43,3 +43,10 @@ From the "Make product launch videos with AI" playbook. Films are generated in R
 rules became checks the agent runs itself (`ea launch audit`: storyboard, copy, palette, glyphs,
 8-frame motion density) plus stills/contact sheets as its eyes. One shared node_modules was rejected:
 each film is its own npm project, so it can add three.js etc. without touching the others.
+
+## 2026-10-05 — memory-os vendored into the repo
+Supersedes the install-from-GitHub part of "Memory: memory-os, two tiers". The system (spec, CLI,
+templates, installer) is copied into `vendor/memory-os/` so it is part of the project: teammates get it
+with the clone, the version is pinned with the code, and `ea memory --install` sets up the private tier
+without a download (seeding in Python, so it works on Windows; `install.sh` adds the bash-only parts).
+Private memory still lives outside the repo in `~/.memory-os/memory/`.
