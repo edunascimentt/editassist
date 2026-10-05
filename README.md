@@ -37,13 +37,13 @@ rest: ffmpeg, Node.js, uv, and the Python and Remotion dependencies.
 
 **macOS / Linux**
 ```bash
-git clone <this repo> editassist && cd editassist
+git clone https://github.com/edunascimentt/editassist.git && cd editassist
 ./setup.sh
 ```
 
 **Windows** (PowerShell)
 ```powershell
-git clone <this repo> editassist; cd editassist
+git clone https://github.com/edunascimentt/editassist.git; cd editassist
 powershell -ExecutionPolicy Bypass -File setup.ps1
 ```
 
