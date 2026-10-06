@@ -96,6 +96,18 @@ def find_phrase(project: Project, phrase: str, sid: str | None = None) -> list[d
     return hits
 
 
+def _neighbours(ws: list[dict], a: float, b: float) -> tuple[float, float]:
+    """End of the last word before `a` and start of the first word after `b` (mid-points decide)."""
+    prev_end, next_start = 0.0, float("inf")
+    for w in ws:
+        mid = (w["start"] + w["end"]) / 2
+        if mid < a - 1e-3:
+            prev_end = max(prev_end, w["end"])
+        elif mid > b + 1e-3:
+            next_start = min(next_start, w["start"])
+    return prev_end, next_start
+
+
 def resolve_segments(project: Project, spec: list[dict]) -> list[dict]:
     """Segment specs written by the model. Each item is either
       {"media": "<id or path>", "in": 1.2, "out": 5.0}
@@ -122,8 +134,9 @@ def resolve_segments(project: Project, spec: list[dict]) -> list[dict]:
         else:
             seg["in"], seg["out"] = float(s["in"]), float(s["out"])
         pad = s.get("pad", 0.08)
-        seg["in"] = max(0.0, seg["in"] - pad)
-        seg["out"] = min(catalog[sid]["duration"] or seg["out"] + pad, seg["out"] + pad)
+        prev_end, next_start = _neighbours(words(project, sid), seg["in"], seg["out"])
+        seg["in"] = max(0.0, prev_end, seg["in"] - pad)  # padding never reaches into the next/previous word
+        seg["out"] = min(catalog[sid]["duration"] or seg["out"] + pad, next_start, seg["out"] + pad)
         out.append(seg)
     return out
 

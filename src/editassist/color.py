@@ -31,7 +31,8 @@ def sample_frames(project: Project, sid: str, n: int = 12, width: int = 160):
     import numpy as np
 
     m = media_by_id(project)[sid]
-    src, dur = str(project.abs(m["path"])), m["duration"] or 1
+    # the proxy holds the same picture and decodes ~50x faster than 4K 10-bit originals
+    src, dur = str(project.abs(m.get("proxy") or m["path"])), m["duration"] or 1
     h = int(round(width * m["height"] / m["width"] / 2) * 2)
     frames = []
     for k in range(n):
@@ -197,8 +198,12 @@ def grade(project: Project, only: list[str] | None = None, auto: bool = False, m
             grades.pop(path, None)
             out[sid] = "reset"
             continue
-        st = stats(sample_frames(project, sid))
+        st = stats(sample_frames(project, sid)) if (auto or match) else None  # LUT/look alone need no analysis
         ops = []
+        if auto and catalog[sid].get("log") and not lut:
+            out.setdefault("warnings", []).append(
+                f"{sid} is {catalog[sid].get('gamma')} (log): auto balance on log is meaningless; "
+                "pass --lut with a log-to-Rec709 conversion LUT")
         if auto:
             ops += auto_ops(st, strength)
         if match and sid != match:

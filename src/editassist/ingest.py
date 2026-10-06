@@ -5,6 +5,31 @@ from .media import extract_audio, probe, run
 from .project import Project, media_kind, read_json, slug, write_json
 
 
+def camera_meta(path) -> dict:
+    """Sony XAVC (and other cameras writing NonRealTimeMeta XML) store the capture gamma, gamut and
+    S&Q frame rate in an XML block near the END of the file: log footage needs a conversion LUT."""
+    import re
+
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 512 * 1024))
+            tail = f.read().decode("latin-1")
+    except OSError:
+        return {}
+    out = {}
+    for key, name in (("gamma", "CaptureGammaEquation"), ("primaries", "CaptureColorPrimaries")):
+        m = re.search(rf'name="{name}" value="([^"]+)"', tail)
+        if m:
+            out[key] = m.group(1)
+    m = re.search(r'captureFps="([\d.]+)p?"', tail)
+    if m:
+        out["capture_fps"] = float(m.group(1))
+    if "log" in out.get("gamma", "").lower():
+        out["log"] = True
+    return out
+
+
 def ingest(project: Project, proxies: bool = False) -> dict:
     catalog = read_json(project.path("work", "media.json"), {})
     seen = set()
@@ -16,6 +41,8 @@ def ingest(project: Project, proxies: bool = False) -> dict:
         seen.add(sid)
         info = probe(f) if media_kind(f) != "image" else {"duration": 0, "has_video": True, "has_audio": False}
         entry = {"id": sid, "path": rel, "kind": media_kind(f), **info}
+        if entry["kind"] == "video":
+            entry.update(camera_meta(f))
         if info.get("has_audio"):
             wav = project.path("work", "audio", f"{sid}.wav")
             if not wav.exists():

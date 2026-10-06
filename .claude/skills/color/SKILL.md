@@ -8,6 +8,11 @@ Every grade compiles into ONE `.cube` per media (`work/color/<id>.cube`, listed 
 `work/color.json`). Render applies it, Resolve gets it applied on import (`ea export --open`),
 Premiere/AE users load the same file.
 
+0. Log footage first (`log: true` / `gamma` in `work/media.json`, e.g. Sony S-Log3): it needs a
+   log-to-Rec709 LUT, never `--auto` on the flat image. Look for the user's own LUTs first (Resolve:
+   `/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/` and its `Custom/`; creative
+   ones made for that camera, e.g. "S-Log3-Sg3Cine", beat the neutral Sony conversion). Then
+   `uv run ea color <p> --lut <file.cube>` (no frame analysis: fast) and `--compare` two or three clips.
 1. Correct: `uv run ea color <p> --auto [--media id1 id2] [--strength 0.7]`. Grey-world balance and
    levels, deliberately gentle.
 2. Match cameras: `uv run ea color <p> --match <reference id> --media <others>`. Pick as reference the

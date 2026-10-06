@@ -14,7 +14,7 @@ chapters and metadata.
  │  Claude Code / Codex  (reads CLAUDE.md)  │
  │        │ follows                         │
  │        ▼                                 │
- │  skills  (.claude/skills/*, 32 recipes)  │      ┌─ DaVinci Resolve (.otio, auto-import + LUTs)
+ │  skills  (.claude/skills/*, 33 recipes)  │      ┌─ DaVinci Resolve (.otio, auto-import + LUTs)
  │        │ calls                           │      │
  │        ▼                                 │      ├─ Premiere Pro (.xml)
  │  `ea` CLI  ── ffmpeg · Whisper ·         │ ───► │
@@ -133,6 +133,7 @@ project tier for personal data; CI runs it on every push.
 | Cut | `rough-cut` | story from the transcript, best takes, target length |
 | | `silence-cut` | remove pauses and hesitations (jump cuts) |
 | | `highlight` | find standalone moments for shorts |
+| | `recap` | one highlights video of an event: spoken lines + beat-cut montage on music |
 | | `reformat` | 16:9 to 9:16 / 1:1 / 4:5 with face tracking |
 | | `zoom-punch` | punch-ins that hide jump cuts, emphasis push-ins |
 | | `transitions` | dissolves, dips, fades in/out |

@@ -25,6 +25,12 @@ Safety (the user's real project is open):
 4. Round-trips: if the user edited in Resolve and wants the changes back in editassist, export a
    timeline from Resolve (OTIO/XML) instead of hand-copying, and say what will be lost.
 
+Resolve Studio 21.0 API limits (21.1 adds them): no `TimelineItem.SetSpeed`, `SetFades`,
+`AddTransition`; audio items have no Volume property. `ImportTimelineFromFile` returned None for every
+OTIO/XML we gave it (2026-10-06), even a 3-clip one. Build with `AppendToTimeline` clip infos instead
+(`ea export --open` does this automatically); slow motion via a pool copy with
+`SetClipProperty("FPS", "<timeline fps>")`.
+
 Typical finishing pass after `ea export --open`:
 - check the imported timeline matches (clip count, duration vs `ea timeline <p>`)
 - grade: the LUT is on node 1; add correction nodes per shot or a colour group per camera

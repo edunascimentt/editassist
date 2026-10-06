@@ -5,13 +5,21 @@ description: Background music bed (ElevenLabs music generation or a track the us
 # music
 
 1. Ask or infer mood, genre and energy from the brief and memory (e.g. "lofi, calm, 85 bpm").
+   Look for music the user already licensed first: client folders often have `_MUSICA`/`music`/`trilha`
+   folders (filenames may note how a track was used: gain, start, fades). Reusing a client's track keeps
+   their videos consistent and costs nothing. ElevenLabs music needs a PAID plan (the free plan answers
+   402 `paid_plan_required`; `ea keys --check` shows the plan).
+   Delivered tracks are often pre-mixed quiet (bed already at -24 dB): measure, then normalise a copy
+   (`ffmpeg -i in.wav -af loudnorm=I=-14:TP=-1.5 work/music/x.wav`) and register that.
+   Choose where the music STARTS so its natural ending lands on the video's end (`ea beats`: start on a
+   downbeat, end = start + video length = file end); a fade-out on a cut-off track is the fallback.
 2. Generate: `uv run ea music <p> "prompt" --seconds <timeline length + 5>` (instrumental unless
    `--vocals`). Or the user's own file: `uv run ea register <p> <file> --kind music`.
 3. Add a track to timeline.json:
    `{"kind": "audio", "name": "Music", "clips": [{"media": "...", "in": 0, "out": L, "start": 0,
    "gain_db": -18, "duck": true, "fade": 1.5}]}`
-   `duck: true` lowers it under dialogue in the render (sidechain). In the NLE export the gain is
-   kept; ducking must be redone there (Resolve: Fairlight ducking, Premiere: Essential Sound > Ducking).
+   `duck: true` lowers it under dialogue in the render (sidechain). `ea export` bakes the same ducking
+   into one stem (`work/baked/music_ducked_*.wav`) for the NLE, because exchange formats only keep gain.
 4. Beats (you can't hear the music, so read them): `uv run ea beats <p> <music id>` writes
    `work/beats/<id>.json` with bpm, every beat and the downbeats (first beat of each bar).
    - Snap inserts (b-roll, motion, sfx) to beats: `uv run ea snap <p> --music <id> --tracks V2 SFX [--downbeats]`.

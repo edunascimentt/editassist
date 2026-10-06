@@ -324,3 +324,197 @@ def test_first_run_hook(tmp_path):
     (tmp_path / ".editassist").mkdir()
     (tmp_path / ".editassist" / "setup.json").write_text('{"status": "done"}')
     assert subprocess.run([bash, str(script)], env=env, capture_output=True, text=True).stdout == ""
+
+
+def test_bite_padding_stops_at_neighbour_words(project):
+    from editassist.cut import resolve_segments
+
+    # "Hoje" starts 3.0; "pessoal." ends 1.5: a 2 s pad must stop at the neighbours, not swallow them
+    seg = resolve_segments(project, [{"media": "cam_a", "from": "hoje", "to": "video", "pad": 2.0}])[0]
+    assert seg["in"] == pytest.approx(1.5) and seg["out"] == pytest.approx(6.0)  # "Hum" starts at 6.0
+
+
+def test_ntsc_export_writes_fcpx_and_bakes_ducking(project):
+    import re
+
+    from editassist.export import exact_fps, export
+
+    assert exact_fps(23.976) == pytest.approx(24000 / 1001) and exact_fps(30) == 30
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.4, "out": 4.9}])
+    tl["fps"] = 23.976
+    T.track(tl, "Music", "audio")["clips"] = [{"media": "input/music_120.wav", "in": 0, "out": 4.5, "start": 0,
+                                                "gain_db": -6, "duck": True}]
+    T.save(project, tl)
+    res = export(project, ["resolve", "fcpx"])
+    assert "fcpx" in res["written"], res["warnings"]  # NTSC rates used to crash the fcpx adapter
+    xml = project.path(res["written"]["fcpx"]).read_text(encoding="utf-8")
+    assert 'frameDuration="1001/24000s"' in xml
+    num, den = re.search(r'<sequence duration="(\d+)/(\d+)s"', xml).groups()
+    assert int(num) / int(den) == pytest.approx(T.length(tl), abs=1 / 23.976)
+    stem = project.path(res["written"]["music_stem"])  # NLEs don't duck: the bed comes pre-ducked
+    assert duration(stem) == pytest.approx(T.length(tl), abs=0.05)
+    assert T.load(project)["tracks"][-1]["clips"][0]["duck"]  # timeline.json itself is untouched
+
+
+def test_resolve_native_build_with_fake_api(project):
+    from editassist import resolve_native
+
+    class Item:
+        def __init__(self, path, fps):
+            self.props = {"File Path": str(path), "FPS": fps}
+
+        def GetClipProperty(self, k=None):
+            return self.props.get(k)
+
+        def SetClipProperty(self, k, v):
+            self.props[k] = float(v)
+            return True
+
+    class Folder:
+        def __init__(self, name):
+            self.name, self.clips, self.subs = name, [], []
+
+        def GetName(self):
+            return self.name
+
+        def GetClipList(self):
+            return self.clips
+
+        def GetSubFolderList(self):
+            return self.subs
+
+    class TlItem:
+        def __init__(self, info):
+            self.info = info
+
+        def SetLUT(self, node, path):
+            return True
+
+        def SetProperty(self, k, v):
+            return False  # Resolve 21.0: no audio volume
+
+    class Tl:
+        def __init__(self):
+            self.tracks = {"video": 1, "audio": 1, "subtitle": 0}
+            self.items = []
+
+        def SetSetting(self, k, v):
+            return True
+
+        def GetStartFrame(self):
+            return 86400
+
+        def GetEndFrame(self):
+            return max(i["recordFrame"] + (i["endFrame"] - i["startFrame"]) * 30 / i["_fps"] for i in self.items)
+
+        def GetTrackCount(self, kind):
+            return self.tracks[kind]
+
+        def AddTrack(self, kind, *a):
+            self.tracks[kind] += 1
+            return True
+
+        def SetTrackName(self, *a):
+            return True
+
+    class MP:
+        def __init__(self):
+            self.root = Folder("Master")
+            self.cur = self.root
+            self.tl = None
+
+        def GetRootFolder(self):
+            return self.root
+
+        def AddSubFolder(self, parent, name):
+            f = Folder(name)
+            parent.subs.append(f)
+            return f
+
+        def SetCurrentFolder(self, f):
+            self.cur = f
+            return True
+
+        def ImportMedia(self, paths):
+            items = [Item(p, 30.0) for p in paths]
+            self.cur.clips += items
+            return items
+
+        def CreateEmptyTimeline(self, name):
+            self.tl = Tl()
+            return self.tl
+
+        def AppendToTimeline(self, infos):
+            info = dict(infos[0]) if isinstance(infos[0], dict) else {"srt": True}
+            if "mediaPoolItem" in info:
+                info["_fps"] = info["mediaPoolItem"].GetClipProperty("FPS")
+                self.tl.items.append(info)
+            return [TlItem(info)]
+
+    class RP:
+        def __init__(self):
+            self.mp = MP()
+
+        def GetMediaPool(self):
+            return self.mp
+
+        def SetCurrentTimeline(self, t):
+            return True
+
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.5, "out": 1.5},
+                                   {"media": "input/cam_a.mp4", "in": 3.0, "out": 4.8}])
+    tl["fps"] = 15  # cam_a is 30 fps: speed 0.5 at a 15 fps timeline = conform (S&Q)
+    v = T.track(tl, "V1")["clips"]
+    v[1]["speed"] = 0.5
+    v[1]["out"] = v[1]["in"] + 0.9
+    T.track(tl, "A1")["clips"][0]["gain_db"] = -3
+    rp = RP()
+    rep = resolve_native.build(project, tl, rp, "x v1")
+    items = rp.mp.tl.items
+    assert rep["placed"] == len(items) == 4 and not rep["failed"]
+    assert rep["slowmo_conformed"] == 1
+    slow = [i for i in items if i["mediaType"] == 1][1]
+    assert slow["mediaPoolItem"].GetClipProperty("FPS") == 15  # its own conformed pool copy
+    assert slow["startFrame"] == 90 and slow["endFrame"] == 117  # frames of the 30 fps file
+    assert slow["recordFrame"] == 86400 + round(1.0 * 15)
+    assert any("-3 dB" in n for n in rep["notes"])
+
+
+def test_scene_overview_sheets(project):
+    from PIL import Image
+
+    from editassist.scenes import detect
+
+    detect(project, frames=3)
+    sheet = Image.open(project.path("work", "frames", "overview_00.jpg"))
+    assert sheet.height == 2 * 320 and sheet.width == 3 * 568  # cam_a + cam_b, 3 moments each at 16:9
+
+
+def test_camera_log_metadata(tmp_path):
+    from editassist.ingest import camera_meta
+
+    f = tmp_path / "C0001.MP4"
+    f.write_bytes(b"\0" * 2048 + b'<VideoFrame captureFps="59.94p" formatFps="59.94p"/>'
+                  b'<Item name="CaptureGammaEquation" value="s-log3-cine"/>'
+                  b'<Item name="CaptureColorPrimaries" value="s-gamut3-cine"/>')
+    assert camera_meta(f) == {"gamma": "s-log3-cine", "primaries": "s-gamut3-cine", "capture_fps": 59.94, "log": True}
+    (tmp_path / "plain.mp4").write_bytes(b"\0" * 64)
+    assert camera_meta(tmp_path / "plain.mp4") == {}
+
+
+def test_ducked_music_runs_past_the_last_word(project):
+    import numpy as np
+
+    from editassist.beats import load_audio
+    from editassist.render import render
+
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.4, "out": 1.6}])
+    T.track(tl, "V1")["clips"][0]["out"] = 6.4  # picture runs on 4.8 s after the dialogue
+    T.track(tl, "Music", "audio")["clips"] = [{"media": "input/music_120.wav", "in": 0, "out": 6.0, "start": 0,
+                                                "duck": True}]
+    T.save(project, tl)
+    out = render(project, "preview")
+    y = load_audio(str(out))
+    tail = y[int(4 * 22050):int(5.5 * 22050)]
+    assert len(y) / 22050 == pytest.approx(6.0, abs=0.15)
+    assert 20 * np.log10(np.sqrt(np.mean(tail ** 2)) + 1e-9) > -40  # music still playing after the last word

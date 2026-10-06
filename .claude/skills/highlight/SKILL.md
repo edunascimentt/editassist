@@ -1,6 +1,6 @@
 ---
 name: highlight
-description: Find the best self-contained moments in long footage (podcast, stream, interview) and turn them into short clips for Reels/TikTok/Shorts. Use for "find clips", "make shorts from this", "best moments".
+description: Find the best self-contained moments in long footage (podcast, stream, interview) and turn them into short clips for Reels/TikTok/Shorts. Use for "find clips", "make shorts from this", "best moments". One highlights/recap video of an event cut to music: recap skill.
 ---
 # highlight
 

@@ -43,6 +43,7 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("scenes", help="shot detection + keyframes + contact sheets")
     p.add_argument("project"); p.add_argument("--threshold", type=float, default=0.3, help="scene score 0..1, lower = more cuts")
     p.add_argument("--only", nargs="*")
+    p.add_argument("--frames", type=int, default=0, help="also overview sheets: N moments per clip, one row per clip")
 
     p = sub.add_parser("find", help="exact times of a phrase in the transcripts")
     p.add_argument("project"); p.add_argument("phrase"); p.add_argument("--media")
@@ -90,12 +91,14 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("render", help="render timeline to mp4")
     p.add_argument("project"); p.add_argument("--preset", default="preview",
                                               choices=["preview", "youtube", "instagram", "tiktok", "podcast", "broadcast"])
-    p.add_argument("--subs", help="burn this .ass/.srt (project-relative)"); p.add_argument("--out")
+    p.add_argument("--subs", help="burn this .ass/.srt (project-relative)"); p.add_argument("--out", help="output file (project-relative)")
 
     p = sub.add_parser("export", help="editable project for Resolve / Premiere / After Effects")
     p.add_argument("project"); p.add_argument("--to", nargs="+", default=["resolve", "premiere", "aftereffects"],
                                               choices=["resolve", "premiere", "fcpx", "aftereffects", "all"])
     p.add_argument("--open", action="store_true", help="auto-import into a running DaVinci Resolve")
+    p.add_argument("--current", action="store_true",
+                   help="with --open: add the timeline to the project open in Resolve (default: a project named after it)")
 
     p = sub.add_parser("qa", help="automatic checks on timeline, captions and (optionally) a render")
     p.add_argument("project"); p.add_argument("--render"); p.add_argument("--preset", default="youtube")
@@ -257,8 +260,9 @@ def main(argv: list[str] | None = None) -> None:
     elif a.cmd == "scenes":
         from .scenes import detect
         pr = Project(a.project)
-        res = detect(pr, a.threshold, only=a.only)
-        out({"scenes": res, "look_at": sorted(str(pr.rel(p)) for p in pr.path("work", "frames").glob("*/contact_*.jpg"))})
+        res = detect(pr, a.threshold, only=a.only, frames=a.frames)
+        sheets = "overview_*.jpg" if a.frames else "*/contact_*.jpg"
+        out({"scenes": res, "look_at": sorted(str(pr.rel(p)) for p in pr.path("work", "frames").glob(sheets))})
     elif a.cmd == "find":
         from .cut import find_phrase
         out(find_phrase(Project(a.project), a.phrase, a.media))
@@ -334,7 +338,7 @@ def main(argv: list[str] | None = None) -> None:
     elif a.cmd == "export":
         from .export import TARGETS, export
         targets = list(TARGETS) if "all" in a.to else a.to
-        out(export(Project(a.project), targets, a.open))
+        out(export(Project(a.project), targets, a.open, a.current))
     elif a.cmd == "qa":
         from .qa import check
         out(check(Project(a.project), a.render, a.preset))

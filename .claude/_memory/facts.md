@@ -57,3 +57,18 @@
 - GUI apps on macOS don't inherit the shell PATH: `app/src/main/paths.ts toolPath()` adds Homebrew and `~/.local/bin` for every child process.
 - Native agent binaries must be in `asarUnpack` (electron-builder) and resolved via `app.asar.unpacked` (`paths.ts claudeExecutable/codexExecutable`).
 - Remotion 4.0.532 `<Sequence playbackRate>` slows the picture; audio stays outside it (verified: 120 bpm bed still 120 bpm in a 1.5x-slowed render).
+
+## Gotchas from the first real edit (2026-10-06, Sony ZV-E1 vertical 4K S-Log3 → Resolve Studio 21.0.0)
+- Resolve 21.0.0 `MediaPool.ImportTimelineFromFile` returned None for our OTIO and FCP7 XML (even a 3-clip V1-only OTIO, any path, with/without options); ~cause unknown. `ea export --open` now falls back to `resolve_native.build` (AppendToTimeline clip infos, frame-exact when run by hand; the module itself is only tested against a fake API).
+- Resolve 21.0 has no `TimelineItem.SetSpeed`/`SetFades` (21.1+) and audio items expose no Volume property: slow motion = a second pool copy of the 59.94 clip with `SetClipProperty("FPS", "23.976")` (Sony S&Q conform); SFX/music gains must be baked into the files; music ducking baked as a stem.
+- `AppendToTimeline` source frames count the clip's own frames (59.94 clip: seconds × 59.94); a conformed copy keeps the same frame index.
+- An imported .srt is a pool item of Type "Subtitle"; `AppendToTimeline([item])` after `AddTrack("subtitle")` places every cue at its SRT time.
+- otio_fcpx_xml_adapter looks rates up by literal key (23.98/29.97/59.94): any NTSC timeline wrote an empty frameDuration and crashed. Fixed by `export.exact_fps` + `_fcpx_rates()`, which must patch the module returned by `otio.adapters.from_name("fcpx_xml").module()` (the plugin loader imports its own copy). Its READER still truncates 23.976 to 23 fps: check durations in the raw XML, not by reading it back.
+- Captions: sizing by frame height overflowed vertical frames; subtitles.py and caption_frames.py now size by the short side, the Pillow path shrinks lines to 88% width and reads `accent` from work/captions.json. Without libass the render burns from work/captions.json, so hand edits to the .ass/.srt don't reach the preview.
+- Remotion Title scaled by height (overflow on vertical); now by the short side, plus optional `y` (0..1) to clear on-screen logos.
+- ffmpeg `sidechaincompress` ends at the KEY's EOF and also drops a variable tail it still buffers: `ea render` silenced the music after the last spoken word (the first real edit's v2 preview lost its last 5.4 s of audio; qa passed it). Fixed: `apad` both inputs, `atrim` to length (render.py and bake.duck_stem); qa now flags audio shorter than picture and silent stretches.
+- Sony XAVC files carry `CaptureGammaEquation` (e.g. s-log3-cine) in an XML block at the END of the file; `tail -c 300000 | strings` finds it. Resolve's LUT folder ships Sony S-Log3 → Rec709 LUTs.
+- ElevenLabs Music API answers 402 `paid_plan_required` on the free plan (TTS/SFX still work).
+- `ea scenes` on single-shot clips gives one tile per clip: `--frames N` writes overview sheets (N moments per clip). Cut detection and `ea color` analysis read proxies; `ea color --lut` alone does no analysis (it took >5 min on 36 4K clips before).
+- `ea render --out` used to resolve against the shell cwd (wrote to the repo root); it is project-relative now, like `--subs`.
+- Bite padding (`ea cut`) used to swallow the previous word's tail; it now stops at neighbouring words.

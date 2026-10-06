@@ -20,6 +20,9 @@ description: Build a first cut from the user's goal or script by choosing the be
 6. `uv run ea timeline <p>` for length; adjust segments until it fits the target.
 7. Preview + summary: list the bites with one line each on why they are there.
 
+Padding (`pad`, default 0.08 s) never reaches into the neighbouring words, so a bite doesn't start
+with the tail of the previous sentence ("ali Eu quero...").
+
 Several cameras or a separate audio recorder: multicam skill (`ea sync` aligns them by sound,
 swaps in the clean mic, switches angles). Interviews and podcasts: run the speakers skill first,
 so the transcript says who speaks when.

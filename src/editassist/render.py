@@ -37,6 +37,9 @@ def build_cmd(project: Project, tl: dict, out: Path, preset: str = "preview",
         for c in tr["clips"]:
             src = project.abs(c["media"])
             kind = media_kind(src)
+            m = catalog.get(c["media"]) or {}
+            if preset == "preview" and tr["kind"] == "video" and m.get("proxy") and not c.get("crop"):
+                src = project.abs(m["proxy"])  # same picture, 540p: previews of 4K footage render many times faster
             d = T.dur(c)
             sp = c.get("speed", 1.0)
             if tr["kind"] == "audio":
@@ -98,7 +101,9 @@ def build_cmd(project: Project, tl: dict, out: Path, preset: str = "preview",
         if ducked and dialog:
             fc.append("".join(f"[{l}]" for l in dialog) + f"amix=inputs={len(dialog)}:normalize=0:duration=longest,asplit=2[dlg][key]")
             fc.append("".join(f"[{l}]" for l in ducked) + f"amix=inputs={len(ducked)}:normalize=0:duration=longest[bed]")
-            fc.append("[bed][key]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=400[ducked]")
+            # sidechaincompress ends at the KEY's end: unpadded, the music died after the last spoken word
+            fc.append(f"[bed]apad[bedp];[key]apad[keyp];[bedp][keyp]sidechaincompress=threshold=0.03:ratio=8:attack=20:"
+                      f"release=400,atrim=0:{total:.3f}[ducked]")
             fc.append("[dlg][ducked]amix=inputs=2:normalize=0:duration=longest[mix]")
         else:
             fc.append("".join(f"[{l}]" for l, _, _ in alabels) +
@@ -124,7 +129,7 @@ def render(project: Project, preset: str = "preview", out: str | None = None, su
     problems = T.validate(project, tl)
     if problems:
         raise SystemExit("timeline has problems, fix before rendering:\n  " + "\n  ".join(problems))
-    dst = Path(out).resolve() if out else project.path("output", f"{tl['name']}_{preset}.mp4")
+    dst = project.abs(out) if out else project.path("output", f"{tl['name']}_{preset}.mp4")  # project-relative, like --subs
     sub = project.abs(subtitles) if subtitles else None
     cmd = build_cmd(project, tl, dst, preset, sub)
     res = subprocess.run(cmd, cwd=str(project.dir), capture_output=True, text=True)

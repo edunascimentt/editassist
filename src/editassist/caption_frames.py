@@ -37,9 +37,9 @@ def build(project: Project, W: int, H: int, captions_file: str = "work/captions.
         raise SystemExit("no work/captions.json: run `ea subtitles <project>` first")
     style = caps.get("style", "clean")
     upper = style == "bold"
-    size = int(H * (0.06 if style == "bold" else 0.046))
-    font = _font("bold" if style == "bold" else "regular", size)
-    stroke = max(2, size // 12)
+    base = int(min(W, H) * (0.06 if style == "bold" else 0.046))  # short side: vertical frames would overflow
+    accent = caps.get("accent", "#FFE500").lstrip("#")
+    accent = tuple(int(accent[i:i + 2], 16) for i in (0, 2, 4)) + (255,)
     y_center = H * (0.5 if style == "bold" else 0.86)
     out = project.path("work", "caption_frames")
     out.mkdir(parents=True, exist_ok=True)
@@ -69,16 +69,23 @@ def build(project: Project, W: int, H: int, captions_file: str = "work/captions.
         img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
         toks = [unicodedata.normalize("NFC", x["word"].upper() if upper else x["word"]) for x in ws]
-        space = d.textlength(" ", font=font)
-        widths = [d.textlength(tk, font=font) for tk in toks]
-        total = sum(widths) + space * (len(toks) - 1)
+        size = base
+        while True:  # shrink long lines until they fit inside 88% of the width
+            font = _font("bold" if style == "bold" else "regular", size)
+            space = d.textlength(" ", font=font)
+            widths = [d.textlength(tk, font=font) for tk in toks]
+            total = sum(widths) + space * (len(toks) - 1)
+            if total <= W * 0.88 or size <= base * 0.5:
+                break
+            size = int(size * 0.92)
+        stroke = max(2, size // 12)
         x = (W - total) / 2
         if style == "boxed":
             pad = size * 0.35
             d.rounded_rectangle([x - pad, y_center - size * 0.75, x + total + pad, y_center + size * 0.75],
                                 radius=size * 0.25, fill=(0, 0, 0, 170))
         for j, tk in enumerate(toks):
-            fill = (255, 229, 0, 255) if j == active else (255, 255, 255, 255)
+            fill = accent if j == active else (255, 255, 255, 255)
             d.text((x, y_center), tk, font=font, fill=fill, anchor="lm",
                    stroke_width=0 if style == "boxed" else stroke, stroke_fill=(0, 0, 0, 255))
             x += widths[j] + space

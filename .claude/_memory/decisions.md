@@ -59,3 +59,13 @@ claude.ai sign-in): own `CLAUDE_CONFIG_DIR`, `apiKeySource` checked. Codex uses 
 `codex login` (ChatGPT account) or an OpenAI key. Keys live in the OS keychain (`safeStorage`) and
 reach the engine only as environment variables. Exports and final renders go through the agent (it
 runs QA and bake first); quick previews call `ea render` directly.
+
+## 2026-10-06 — Resolve: native build fallback, ducking baked on export, self-improvement loop
+The first real edit (vertical S-Log3 event footage into an open Resolve Studio 21.0 project) needed
+three one-off scripts; each became part of `ea`. `ea export --open` keeps the OTIO import (one call,
+works on other versions) but falls back to building the timeline with `AppendToTimeline` when Resolve
+rejects it, and `--current` targets the project already open (the user's "projeto que está aberto")
+instead of creating one. Speed changes the 21.0 API can't set are handled by conformed pool copies,
+not by baking, so the NLE keeps the original 4K log media. Music ducking is rendered into a stem on
+every export, because exchange formats carry gain only. CLAUDE.md step 6 makes "fix what you worked
+around, with a regression test" part of every task, at the user's request.

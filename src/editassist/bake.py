@@ -90,3 +90,80 @@ def bake(project: Project, color: bool = False, handles: float = 1.0) -> dict:
     write_json(project.path("work", "media.json"), catalog)
     T.save(project, tl)
     return stats
+
+
+def _audio_input(project: Project, c: dict, idx: int) -> tuple[list[str], str]:
+    """ffmpeg input args + filter chain for one audio clip placed at its timeline time (as render does)."""
+    sp = c.get("speed", 1.0)
+    d = T.dur(c)
+    fi, fo = c.get("afade_in", c.get("fade", 0.0)), c.get("afade_out", c.get("fade", 0.0))
+    fades = (f",afade=t=in:d={fi:.3f}" if fi else "") + (f",afade=t=out:st={max(0, d - fo):.3f}:d={fo:.3f}" if fo else "")
+    ms = int(round(c["start"] * 1000))
+    args = ["-ss", f"{c['in']:.3f}", "-t", f"{c['out'] - c['in']:.3f}", "-i", str(project.abs(c["media"]))]
+    chain = (f"[{idx}:a]asetpts=PTS-STARTPTS,{atempo_chain(sp) + ',' if sp != 1.0 else ''}aresample=48000,"
+             f"aformat=channel_layouts=stereo,volume={c.get('gain_db', 0)}dB{fades},adelay={ms}:all=1[a{idx}]")
+    return args, chain
+
+
+def duck_stem(project: Project, tl: dict) -> tuple[dict, str | None]:
+    """NLE exchange formats keep a clip's gain but not the render's sidechain ducking. Render the ducked
+    clips (music beds) as ONE stem, already ducked under every other audio track, and return a copy of
+    the timeline that uses it. Two ffmpeg passes: a sidechain key fed by an amix of many delayed inputs
+    stopped at the last dialogue word (ffmpeg 8), a key rendered to a file first does not."""
+    catalog = {m["path"]: m for m in (read_json(project.path("work", "media.json"), {}) or {}).values()}
+    ducked, key = [], []
+    for tr in tl["tracks"]:
+        if tr["kind"] != "audio":
+            continue
+        for c in tr["clips"]:
+            m = catalog.get(c["media"])
+            if m is not None and not m.get("has_audio", True):
+                continue
+            (ducked if c.get("duck") else key).append((tr["name"], c))
+    if not ducked or not key:
+        return tl, None
+    total = T.length(tl)
+    sig = _key(total, [c for _, c in ducked], [c for _, c in key])
+    out_dir = project.path("work", "baked")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = out_dir / f"music_ducked_{sig}.wav"
+    if not stem.exists():
+        def mix(clips, dst):
+            args, fc = [], []
+            for i, (_, c) in enumerate(clips):
+                a, ch = _audio_input(project, c, i)
+                args += a
+                fc.append(ch)
+            fc.append(f"anullsrc=r=48000:cl=stereo:d={total:.3f}[sil]")
+            fc.append("".join(f"[a{i}]" for i in range(len(clips))) +
+                      f"[sil]amix=inputs={len(clips) + 1}:normalize=0:duration=longest[m]")
+            run(["ffmpeg", "-y", "-v", "error", *args, "-filter_complex", ";".join(fc), "-map", "[m]",
+                 "-t", f"{total:.3f}", "-c:a", "pcm_s24le", str(dst)])
+
+        key_wav, bed_wav = out_dir / f"duck_key_{sig}.wav", out_dir / f"duck_bed_{sig}.wav"
+        mix(key, key_wav)
+        mix(ducked, bed_wav)
+        run(["ffmpeg", "-y", "-v", "error", "-i", str(bed_wav), "-i", str(key_wav), "-filter_complex",
+             # sidechaincompress drops a variable tail of what it still buffers at EOF: run both inputs
+             # past the end and cut back to the exact length
+             "[0:a]apad=pad_dur=2[b];[1:a]apad=pad_dur=2[k];"
+             f"[b][k]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=400,atrim=0:{total:.3f}[o]",
+             "-map", "[o]", "-t", f"{total:.3f}", "-c:a", "pcm_s24le", str(stem)])
+        key_wav.unlink()
+        bed_wav.unlink()
+    rel = project.rel(stem)
+    dur = probe(stem)["duration"]
+    first = ducked[0][0]
+    out = json.loads(json.dumps(tl))
+    for tr in out["tracks"]:
+        if tr["kind"] == "audio":
+            tr["clips"] = [c for c in tr["clips"] if not c.get("duck")]
+        if tr["name"] == first:
+            tr["clips"].insert(0, {"media": rel, "in": 0.0, "out": round(min(total, dur), 3), "start": 0.0,
+                                   "note": "music, ducking baked under the other audio"})
+    catalog_all = read_json(project.path("work", "media.json"), {}) or {}
+    sid = stem.stem
+    if sid not in catalog_all:  # validate/export look media up in the catalog
+        catalog_all[sid] = {"id": sid, "path": rel, "kind": "audio", "derived": True, **probe(stem)}
+        write_json(project.path("work", "media.json"), catalog_all)
+    return out, rel

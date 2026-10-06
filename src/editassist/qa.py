@@ -54,9 +54,17 @@ def check(project: Project, render_path: str | None = None, preset: str = "youtu
     if render_path:
         src = str(project.abs(render_path))
         res = run(["ffmpeg", "-v", "info", "-i", src, "-vf", "blackdetect=d=0.25:pix_th=0.08",
-                   "-af", "ebur128=peak=true", "-f", "null", "-"])
+                   "-af", "ebur128=peak=true,silencedetect=n=-55dB:d=1.5", "-f", "null", "-"])
         for a, b in re.findall(r"black_start:([\d.]+) black_end:([\d.]+)", res.stderr):
             add("warn", f"black frames in render {float(a):.2f}-{float(b):.2f}s")
+        # an audio stream shorter than the picture (or silent to the end) passes loudness checks unnoticed
+        durs = run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,duration", "-of", "csv=p=0", src]).stdout
+        sd = {k: float(v) for k, v in (l.split(",")[:2] for l in durs.split() if "," in l) if v not in ("N/A", "")}
+        if "video" in sd and "audio" in sd and sd["video"] - sd["audio"] > 0.3:
+            add("warn", f"audio ends {sd['video'] - sd['audio']:.2f}s before the picture ({sd['audio']:.2f}s of {sd['video']:.2f}s)")
+        for a, d in re.findall(r"silence_start: (-?[\d.]+)[\s\S]*?silence_duration: ([\d.]+)", res.stderr):
+            if float(d) >= 1.5:
+                add("warn", f"render silent {float(a):.2f}-{float(a) + float(d):.2f}s")
         i = re.findall(r"I:\s+(-?[\d.]+) LUFS", res.stderr)
         tp = re.findall(r"Peak:\s+(-?[\d.]+) dBFS", res.stderr)
         if i:

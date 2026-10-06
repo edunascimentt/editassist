@@ -145,7 +145,7 @@ def _write(project: Project, lines: list[dict], name: str, style: str, karaoke: 
 
     font, size_pct, primary, outline, hi, bold, upper, align = STYLES.get(style, STYLES["clean"])
     W, H = tl["width"], tl["height"]
-    size = int(H * size_pct / 100)
+    size = int(min(W, H) * size_pct / 100)  # by the short side: vertical frames would overflow
     border_style, outline_w, shadow = (3, 8, 0) if style == "boxed" else (1, max(2, size // 12), 0)
     margin_v = int(H * (0.1 if align == 2 else 0.0))
     head = f"""[Script Info]

@@ -22,10 +22,30 @@ from .project import Project, media_kind, read_json
 TARGETS = ("resolve", "premiere", "fcpx", "aftereffects")
 
 
+def exact_fps(fps: float) -> float:
+    """23.976 / 29.97 / 59.94 written to json are NTSC rates: use the exact n*1000/1001 so frame counts
+    and FCPXML frame durations (1001/24000s) line up instead of drifting."""
+    n = round(fps * 1.001)
+    if abs(fps - round(fps)) > 0.01 and abs(fps - n * 1000 / 1001) < 0.01:
+        return n * 1000 / 1001
+    return float(fps)
+
+
+def _fcpx_rates() -> None:
+    """otio_fcpx_xml_adapter looks rates up by literal key (23.98, 29.97, 59.94): exact NTSC floats
+    miss and every format gets an empty frameDuration (ValueError on export)."""
+    import opentimelineio as otio
+
+    # the plugin loader imports its own copy of the module: patch that one, not `import otio_fcpx_xml_adapter`
+    table = otio.adapters.from_name("fcpx_xml").module().FRAMERATE_FRAMEDURATION
+    for n in (24, 30, 48, 60, 120):
+        table.setdefault(n * 1000 / 1001, f"1001/{n * 1000}s")
+
+
 def to_otio(project: Project, tl: dict):
     import opentimelineio as otio
 
-    fps = tl["fps"]
+    fps = exact_fps(tl["fps"])
     rt = lambda sec: otio.opentime.RationalTime(round(sec * fps), fps)
     catalog = {m["path"]: m for m in (read_json(project.path("work", "media.json"), {}) or {}).values()}
     timeline = otio.schema.Timeline(name=tl["name"], global_start_time=otio.opentime.RationalTime(0, fps))
@@ -89,7 +109,7 @@ def to_otio(project: Project, tl: dict):
     return timeline
 
 
-def export(project: Project, targets: list[str], open_resolve: bool = False) -> dict:
+def export(project: Project, targets: list[str], open_resolve: bool = False, into_current: bool = False) -> dict:
     import opentimelineio as otio
 
     tl = T.load(project)
@@ -119,21 +139,32 @@ def export(project: Project, targets: list[str], open_resolve: bool = False) -> 
     if graded:
         warnings.append("colour grades are LUTs: Resolve gets them applied with --open; in Premiere add them in "
                         "Lumetri > Basic > Input LUT, in AE with Effect > Utility > Apply Color LUT: " + ", ".join(graded))
+    from .bake import duck_stem
+
+    tl, stem = duck_stem(project, tl)  # NLEs keep gains but not the render's sidechain ducking
+    if stem:
+        written["music_stem"] = stem
+        warnings.append(f"music ducking baked into {stem} (re-export after changing dialogue or music)")
     ot = to_otio(project, tl)
     if "resolve" in targets:
         p = out_dir / f"{name}.otio"
         otio.adapters.write_to_file(ot, str(p))
         written["resolve"] = project.rel(p)
         if open_resolve:
-            written["resolve_import"] = resolve_import(project, tl, p)
+            written["resolve_import"] = resolve_import(project, tl, p, into_current)
     if "premiere" in targets:
         p = out_dir / f"{name}.xml"
         otio.adapters.write_to_file(ot, str(p), adapter_name="fcp_xml")
         written["premiere"] = project.rel(p)
     if "fcpx" in targets:
         p = out_dir / f"{name}.fcpxml"
-        otio.adapters.write_to_file(ot, str(p), adapter_name="fcpx_xml")
-        written["fcpx"] = project.rel(p)
+        _fcpx_rates()
+        try:  # third-party adapter: one odd timeline must not cost the user the other formats
+            otio.adapters.write_to_file(ot, str(p), adapter_name="fcpx_xml")
+            written["fcpx"] = project.rel(p)
+        except Exception as e:  # noqa: BLE001
+            warnings.append(f"fcpx export failed in otio_fcpx_xml_adapter ({type(e).__name__}: {e}); "
+                            "FCP needs a video clip under every connected clip. Import the Premiere XML instead.")
     if "aftereffects" in targets:
         p = out_dir / f"{name}.jsx"
         p.write_text(ae_script(project, tl), encoding="utf-8-sig")
@@ -280,9 +311,11 @@ def _resolve_paths() -> tuple[str, str]:
     return ("/opt/resolve/Developer/Scripting/Modules", "/opt/resolve/libs/Fusion/fusionscript.so")
 
 
-def resolve_import(project: Project, tl: dict, otio_path: Path) -> str:
+def resolve_import(project: Project, tl: dict, otio_path: Path, into_current: bool = False) -> str:
     """Create (or reuse) a Resolve project and import the timeline. Resolve must be running, and
-    Preferences > System > General > External scripting using must be set to Local."""
+    Preferences > System > General > External scripting using must be set to Local.
+    into_current: add the timeline to the project open in Resolve instead of one named after it.
+    If Resolve rejects the OTIO, the timeline is built natively clip by clip (resolve_native)."""
     mod_dir, lib = _resolve_paths()
     os.environ.setdefault("RESOLVE_SCRIPT_API", str(Path(mod_dir).parent))
     os.environ.setdefault("RESOLVE_SCRIPT_LIB", lib)
@@ -297,18 +330,38 @@ def resolve_import(project: Project, tl: dict, otio_path: Path) -> str:
                 f"External scripting using: Local, then retry. Or import {otio_path.name} manually.")
     pm = resolve.GetProjectManager()
     pm.SaveProject()  # loading another project closes the current one; never lose the user's work
-    rp = pm.LoadProject(tl["name"]) or pm.CreateProject(tl["name"])
-    if not rp:
-        return "failed: could not create or open the Resolve project"
-    if not rp.GetTimelineCount():
-        rp.SetSetting("timelineFrameRate", str(tl["fps"]))
-        rp.SetSetting("timelineResolutionWidth", str(tl["width"]))
-        rp.SetSetting("timelineResolutionHeight", str(tl["height"]))
+    if into_current:
+        rp = pm.GetCurrentProject()
+        if not rp:
+            return "failed: no project open in Resolve"
+        if abs(float(rp.GetSetting("timelineFrameRate") or 0) - tl["fps"]) > 0.01 and not rp.GetTimelineCount():
+            rp.SetSetting("timelineFrameRate", str(tl["fps"]))
+    else:
+        rp = pm.LoadProject(tl["name"]) or pm.CreateProject(tl["name"])
+        if not rp:
+            return "failed: could not create or open the Resolve project"
+        if not rp.GetTimelineCount():
+            rp.SetSetting("timelineFrameRate", str(tl["fps"]))
+            rp.SetSetting("timelineResolutionWidth", str(tl["width"]))
+            rp.SetSetting("timelineResolutionHeight", str(tl["height"]))
     mp = rp.GetMediaPool()
-    name = f"{tl['name']} v{rp.GetTimelineCount() + 1}"
+    existing = {rp.GetTimelineByIndex(i + 1).GetName() for i in range(rp.GetTimelineCount())}
+    n = rp.GetTimelineCount() + 1
+    while f"{tl['name']} v{n}" in existing:
+        n += 1
+    name = f"{tl['name']} v{n}"
+    srt = otio_path.with_suffix(".srt")
     timeline = mp.ImportTimelineFromFile(str(otio_path), {"timelineName": name, "importSourceClips": True})
-    if not timeline:
-        return "failed: Resolve rejected the OTIO file (check the Resolve console)"
+    if not timeline:  # seen on Studio 21.0.0 for every OTIO/XML: build it clip by clip instead
+        from .resolve_native import build
+
+        rep = build(project, tl, rp, name, srt=srt)
+        pm.SaveProject()
+        notes = ("; " + "; ".join(rep["notes"])) if rep["notes"] else ""
+        failed = f", {len(rep['failed'])} clips FAILED: {rep['failed']}" if rep["failed"] else ""
+        return (f"ok (built natively, Resolve rejected the OTIO): project '{rp.GetName()}', timeline '{name}', "
+                f"{rep['placed']} clips, LUT on {rep['luts']}, {rep['slowmo_conformed']} slow-motion copies conformed"
+                f"{', subtitles placed' if rep.get('subtitles') else ''}{failed}{notes}")
     rp.SetCurrentTimeline(timeline)
     # colour: apply each media's LUT (work/color.json) on node 1 of every clip from that media
     from .videofx import media_grade
@@ -322,9 +375,14 @@ def resolve_import(project: Project, tl: dict, otio_path: Path) -> str:
                 path = mpi.GetClipProperty("File Path") if mpi else None
                 if path and str(Path(path).resolve()) in luts and item.SetLUT(1, luts[str(Path(path).resolve())]):
                     applied += 1
-    srt = otio_path.with_suffix(".srt")
+    placed = False
     if srt.exists():
-        mp.ImportMedia([str(srt)])
+        sub = (mp.ImportMedia([str(srt)]) or [None])[0]
+        if sub:  # a .srt pool item lands cue by cue on a subtitle track
+            if not timeline.GetTrackCount("subtitle"):
+                timeline.AddTrack("subtitle")
+            placed = bool(mp.AppendToTimeline([sub]))
     pm.SaveProject()
-    return (f"ok: project '{tl['name']}', timeline '{name}'" + (" (SRT in media pool)" if srt.exists() else "")
+    return (f"ok: project '{rp.GetName()}', timeline '{name}'"
+            + ((" (subtitles placed)" if placed else " (SRT in media pool)") if srt.exists() else "")
             + (f", LUT applied to {applied} clips" if applied else ""))

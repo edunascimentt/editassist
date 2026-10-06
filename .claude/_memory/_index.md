@@ -15,4 +15,5 @@
 - [decisions.md](decisions.md) — append-only: engine design, timeline format, bundling, bake, Higgsfield, Resolve MCP, memory tiers
 
 - **BUILT (2026-10-01):** full pipeline + 28 skills + tests/CI. **2026-10-02:** Resolve MCP, memory-os, product-launch skill (`templates/launch/`, `ea launch`).
+- **2026-10-06:** first real edit; then self-improvement pass: native Resolve fallback + `--current`, NTSC fcpx fix, ducking stem on export, render ducking bug fixed, qa audio checks, `scenes --frames`, `recap` skill (33), CLAUDE.md step 6.
 - **2026-10-05:** `preferences-quiz` skill (32 skills); repo public on GitHub; memory-os vendored in `vendor/memory-os/` (`ea memory --install`); desktop app in `app/` (Electron, Claude API key / Codex).

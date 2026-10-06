@@ -10,7 +10,12 @@ description: Captions synced to the EDITED timeline. SRT for the NLE, styled ASS
   after any edit.
 - `clean`: bottom, sentence case (YouTube). `bold`: centre, uppercase, highlighted word (shorts).
   `boxed`: bottom with dark box (accessibility). Use the user's style from memory when set.
-- `--max-words`: 2-3 for shorts, 5-7 for long-form.
+- `--max-words`: 2-3 for shorts, 5-7 for long-form. Vertical frames: sizes follow the short side and
+  long lines shrink to fit; still check a rendered frame.
+- Accent colour of the highlighted word: set `"accent": "#RRGGBB"` in `work/captions.json` (burn-in
+  path) and the `\c&HBBGGRR&` highlight in the .ass. Match titles/brand.
+- Misheard words (têm/tem, missing commas, names): fix them in `work/transcripts/<id>.json` and re-run,
+  not by hand in the .srt/.ass (render burns from `work/captions.json`, which a re-run overwrites).
 - Outputs: `output/<name>.srt` (import as subtitle track; exported alongside NLE projects),
   `output/<name>.ass`, `work/captions.json`.
 - Burn in: `uv run ea render <p> --subs output/<name>.ass` (works with or without libass in ffmpeg).

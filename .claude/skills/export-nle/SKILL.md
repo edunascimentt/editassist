@@ -14,7 +14,14 @@ description: Deliver the edit as an editable project in DaVinci Resolve, Premier
   .cube files to load (Lumetri > Input LUT / Apply Color LUT).
 - Dissolves export as real transitions. Fades and dips are listed for you to add in the NLE.
 - Chapters (metadata skill) export as timeline markers.
-- **Resolve**: `output/<name>.otio`. With `--open` and Resolve running (Preferences > System >
+- **Resolve**: `output/<name>.otio`. `--open --current` adds the timeline to the project OPEN in
+  Resolve (what the user usually means by "no projeto do DaVinci que está aberto"); plain `--open`
+  creates/opens a project named after the timeline. If Resolve rejects the OTIO (Studio 21.0.0 did for
+  every OTIO/XML), `--open` builds the timeline natively clip by clip (`resolve_native.py`): media
+  already in the user's bins is reused, 59.94 slow-motion clips get conformed pool copies in
+  `editassist/slowmo`, LUTs go on node 1, the SRT lands on a subtitle track. Read the result line: it
+  lists gains and fades the 21.0 API can't set. Never switch the user's project without saying so.
+- With `--open` and Resolve running (Preferences > System >
   General > External scripting using: Local), it saves the current project, then creates/opens a
   project named after the timeline and imports it, plus the SRT into the media pool. Manual: File >
   Import > Timeline > pick the .otio.
@@ -27,5 +34,8 @@ description: Deliver the edit as an editable project in DaVinci Resolve, Premier
 - **Final Cut Pro**: `output/<name>.fcpxml`.
 - Media paths are absolute: if the project moves to another machine, relink in the NLE (or re-export
   there).
-- Not carried to NLEs: music ducking (gain is), burned captions (use the SRT), fades to black.
-  Tell the user what to redo.
+- Music ducking is baked into a stem on export (re-export after changing dialogue or music).
+- Not carried to NLEs: burned captions (use the SRT), fades to black, caption styling. Tell the user
+  what to redo.
+- After `--open`, render a check from Resolve (resolve-live) and compare frames against the ea preview
+  at the same times: that is how you know the NLE timeline matches.

@@ -4,7 +4,10 @@ description: Understand what is ON SCREEN. Detects shots, extracts keyframes and
 ---
 # visual-index
 
-1. `uv run ea scenes <p> [--threshold 0.3]` (lower threshold = more cuts).
+1. `uv run ea scenes <p> [--threshold 0.3] [--frames 6]` (lower threshold = more cuts).
+   Footage shot as one take per clip (events, b-roll, phone clips) gives ONE scene and one tile per
+   clip: add `--frames 6` and read `work/frames/overview_*.jpg` instead (one row of 6 moments per clip,
+   4 clips per sheet; log footage gets a view-only contrast boost).
 2. Open every `work/frames/<id>/contact_*.jpg` with your image reading tool. Each tile is labelled
    `#scene start-end`.
 3. Write `work/visual_index.json`:

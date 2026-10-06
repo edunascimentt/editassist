@@ -31,6 +31,13 @@ user prompt + media ──► you (Claude Code / Codex) ──► skills (recipe
    skill.
 5. **Learn**: when the user corrects you or states a preference, write it to `<memory>` (see
    style-profile skill). Don't wait for the end of the task.
+6. **Improve the tools** (the user wants this editor to improve itself): before you call a task done,
+   review it for every place you worked around `ea` (a one-off script, a hand-edited output file, a
+   command that failed or was slow, a check that missed something you later saw). For each one: fix
+   the command or skill, add a regression test in `tests/` that fails without the fix, run
+   `uv run pytest -q`, and record the gotcha in `.claude/_memory/facts.md`. Don't touch the user's
+   project or their open NLE project while doing it (test on a copy in your scratchpad). If a fix is
+   too big for now, add it to `.claude/_memory/focus.md`. Then tell the user what you improved.
 
 ## Rules
 
