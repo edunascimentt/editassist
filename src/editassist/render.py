@@ -65,7 +65,7 @@ def build_cmd(project: Project, tl: dict, out: Path, preset: str = "preview",
                 fades = (f",afade=t=in:d={fi:.3f}" if fi else "") + \
                         (f",afade=t=out:st={max(0, d - fo):.3f}:d={fo:.3f}" if fo else "")
                 ms = int(round(c["start"] * 1000))
-                fc.append(f"[{idx}:a]asetpts=PTS-STARTPTS,{tempo}aresample=48000,"
+                fc.append(f"[{idx}:a]asetpts=PTS-STARTPTS,{tempo}aresample=48000,{T.channel_filter(c)}"
                           f"aformat=channel_layouts=stereo,volume={gain}dB{fades},adelay={ms}:all=1"
                           f"[a{idx}]")
                 alabels.append((f"a{idx}", tr["name"], c.get("duck", False)))

@@ -26,7 +26,8 @@ Optional clip fields:
   transition_out {"type": "fade", "dur": 1.0}                         at its tail (to black)
   duck (music under dialogue), fade (audio fade in+out seconds)
   stabilize (true: handheld shake, set by `ea shake`), role ("dialogue"|"bed"|"music"|"sfx" for `ea level`),
-  lufs (measured by `ea level`)
+  lufs (measured by `ea level`), channel ("L" | "R": use one side of a dual-mic stereo source, centred;
+  set by `ea level` on dialogue, "stereo" keeps both)
 """
 from __future__ import annotations
 
@@ -65,6 +66,14 @@ def dur(c: dict) -> float:
 
 def end(c: dict) -> float:
     return c["start"] + dur(c)
+
+
+def channel_filter(c: dict) -> str:
+    """ffmpeg filter (with trailing comma) for a clip's `channel`: one side of a stereo source played on
+    both sides. Field recorders often put two mics on L and R (lavalier on one, camera or car mic on the
+    other); played as stereo, the voice sits in one ear and the other mic's noise in the other."""
+    ch = {"L": 0, "R": 1}.get(c.get("channel", ""))
+    return "" if ch is None else f"pan=stereo|c0=c{ch}|c1=c{ch},"
 
 
 def length(tl: dict) -> float:

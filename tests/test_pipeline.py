@@ -769,3 +769,34 @@ def test_resolve_native_builds_inside_template_timeline(project):
     assert styled.items == [{"old": True}]  # the user's timeline is untouched
     assert rep["placed"] == 2 and rep["subtitles"]
     assert list(project.path("work", "baked").glob("t *.srt"))
+
+
+def test_level_uses_the_voice_side_of_a_dual_mic_recording(project):
+    """In-car take: lavalier on L, car mic on R. Measured as stereo the road noise counted as voice
+    (voice turned down under the noise) and played as stereo the voice sat in one ear. `ea level` must
+    pick the voice side, measure only it, and bake / render must play it on both sides."""
+    from editassist.bake import gain_copies
+    from editassist.ingest import ingest
+    from editassist.levels import level, segment_lufs
+
+    words = "0.3*sin(2*PI*300*t)*gt(sin(2*PI*1.2*t)\\,0)"
+    for name, expr in (("car.wav", f"{words}|1.2*(random(0)-0.5)"),  # voice L, louder steady noise R
+                       ("both.wav", f"{words}|{words}")):              # real stereo: leave it
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"aevalsrc={expr}:s=48000:d=6",
+                        str(project.path("input", name))], check=True)
+    ingest(project)
+    tl = T.from_segments(project, [{"media": "input/car.wav", "in": 0, "out": 6},
+                                   {"media": "input/both.wav", "in": 0, "out": 6}], with_video=False)
+    T.save(project, tl)
+    level(project)
+    car, both = T.track(T.load(project), "A1")["clips"]
+    assert car["channel"] == "L" and "channel" not in both
+    assert segment_lufs(project, car) + car["gain_db"] == pytest.approx(-16, abs=0.3)
+    assert segment_lufs(project, {**car, "channel": "stereo"}) > segment_lufs(project, car) + 3  # noise excluded
+
+    baked, _ = gain_copies(project, T.load(project))
+    out = project.abs(T.track(baked, "A1")["clips"][0]["media"])
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(out), "-f", "f32le", "-"], capture_output=True).stdout
+    import numpy as np
+    x = np.frombuffer(raw, np.float32).reshape(-1, 2)
+    assert np.allclose(x[:, 0], x[:, 1])  # the voice on both sides, no car noise in one ear

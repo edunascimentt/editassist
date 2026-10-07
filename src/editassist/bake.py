@@ -92,6 +92,11 @@ def bake(project: Project, color: bool = False, handles: float = 1.0) -> dict:
     return stats
 
 
+def _ch(c: dict) -> tuple:
+    """Cache-key part for `channel` (empty when unset, so existing baked files keep their names)."""
+    return (c["channel"],) if c.get("channel") in ("L", "R") else ()
+
+
 def gain_copies(project: Project, tl: dict) -> tuple[dict, int]:
     """Copy of `tl` where every audio clip with a gain or fade plays a rendered wav of just its
     segment with that gain and those fades applied (work/baked/gain_*.wav, reused when unchanged).
@@ -107,23 +112,23 @@ def gain_copies(project: Project, tl: dict) -> tuple[dict, int]:
             continue
         for c in tr["clips"]:
             fi, fo = c.get("afade_in", c.get("fade", 0.0)), c.get("afade_out", c.get("fade", 0.0))
-            if not (c.get("gain_db") or fi or fo):
+            if not (c.get("gain_db") or fi or fo or c.get("channel") in ("L", "R")):
                 continue
             sp = c.get("speed", 1.0)
-            dst = out_dir / f"gain_{_key(c['media'], c['in'], c['out'], sp, c.get('gain_db', 0), fi, fo)}.wav"
+            dst = out_dir / f"gain_{_key(c['media'], c['in'], c['out'], sp, c.get('gain_db', 0), fi, fo, *_ch(c))}.wav"
             if not dst.exists():
                 out_dir.mkdir(parents=True, exist_ok=True)
                 d = T.dur(c)
                 fades = (f",afade=t=in:d={fi:.3f}" if fi else "") + \
                         (f",afade=t=out:st={max(0, d - fo):.3f}:d={fo:.3f}" if fo else "")
                 af = (atempo_chain(sp) + "," if sp != 1.0 else "") + \
-                    f"aresample=48000,aformat=channel_layouts=stereo,volume={c.get('gain_db', 0)}dB{fades}"
+                    f"aresample=48000,{T.channel_filter(c)}aformat=channel_layouts=stereo,volume={c.get('gain_db', 0)}dB{fades}"
                 run(["ffmpeg", "-y", "-v", "error", "-ss", f"{c['in']:.3f}", "-t", f"{c['out'] - c['in']:.3f}",
                      "-i", str(project.abs(c["media"])), "-vn", "-af", af, "-c:a", "pcm_s24le", str(dst)],
                     cwd=project.dir)
             d = T.dur(c)
-            c["source"] = {k: c.get(k) for k in ("media", "in", "out", "gain_db", "fade") if k in c}
-            for k in ("gain_db", "fade", "afade_in", "afade_out", "speed"):
+            c["source"] = {k: c.get(k) for k in ("media", "in", "out", "gain_db", "fade", "channel") if k in c}
+            for k in ("gain_db", "fade", "afade_in", "afade_out", "speed", "channel"):
                 c.pop(k, None)
             c["media"], c["in"], c["out"] = project.rel(dst), 0.0, round(d, 6)
             n += 1
@@ -139,7 +144,7 @@ def _audio_input(project: Project, c: dict, idx: int) -> tuple[list[str], str]:
     ms = int(round(c["start"] * 1000))
     args = ["-ss", f"{c['in']:.3f}", "-t", f"{c['out'] - c['in']:.3f}", "-i", str(project.abs(c["media"]))]
     chain = (f"[{idx}:a]asetpts=PTS-STARTPTS,{atempo_chain(sp) + ',' if sp != 1.0 else ''}aresample=48000,"
-             f"aformat=channel_layouts=stereo,volume={c.get('gain_db', 0)}dB{fades},adelay={ms}:all=1[a{idx}]")
+             f"{T.channel_filter(c)}aformat=channel_layouts=stereo,volume={c.get('gain_db', 0)}dB{fades},adelay={ms}:all=1[a{idx}]")
     return args, chain
 
 
