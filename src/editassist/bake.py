@@ -12,7 +12,7 @@ from .media import probe, run
 from .project import Project, read_json, write_json
 from .videofx import clip_vfilter, media_grade
 
-PICTURE_KEYS = ("crop", "zoom")
+PICTURE_KEYS = ("crop", "zoom", "stabilize")
 
 
 def atempo_chain(sp: float) -> str:
@@ -90,6 +90,44 @@ def bake(project: Project, color: bool = False, handles: float = 1.0) -> dict:
     write_json(project.path("work", "media.json"), catalog)
     T.save(project, tl)
     return stats
+
+
+def gain_copies(project: Project, tl: dict) -> tuple[dict, int]:
+    """Copy of `tl` where every audio clip with a gain or fade plays a rendered wav of just its
+    segment with that gain and those fades applied (work/baked/gain_*.wav, reused when unchanged).
+    For NLE APIs that can't set clip volume or audio fades (Resolve 21.0 scripting): the music and
+    SFX land at the level the preview had. Returns (timeline copy, number of clips replaced)."""
+    import copy
+
+    tl = copy.deepcopy(tl)
+    out_dir = project.path("work", "baked")
+    n = 0
+    for tr in tl["tracks"]:
+        if tr["kind"] != "audio":
+            continue
+        for c in tr["clips"]:
+            fi, fo = c.get("afade_in", c.get("fade", 0.0)), c.get("afade_out", c.get("fade", 0.0))
+            if not (c.get("gain_db") or fi or fo):
+                continue
+            sp = c.get("speed", 1.0)
+            dst = out_dir / f"gain_{_key(c['media'], c['in'], c['out'], sp, c.get('gain_db', 0), fi, fo)}.wav"
+            if not dst.exists():
+                out_dir.mkdir(parents=True, exist_ok=True)
+                d = T.dur(c)
+                fades = (f",afade=t=in:d={fi:.3f}" if fi else "") + \
+                        (f",afade=t=out:st={max(0, d - fo):.3f}:d={fo:.3f}" if fo else "")
+                af = (atempo_chain(sp) + "," if sp != 1.0 else "") + \
+                    f"aresample=48000,aformat=channel_layouts=stereo,volume={c.get('gain_db', 0)}dB{fades}"
+                run(["ffmpeg", "-y", "-v", "error", "-ss", f"{c['in']:.3f}", "-t", f"{c['out'] - c['in']:.3f}",
+                     "-i", str(project.abs(c["media"])), "-vn", "-af", af, "-c:a", "pcm_s24le", str(dst)],
+                    cwd=project.dir)
+            d = T.dur(c)
+            c["source"] = {k: c.get(k) for k in ("media", "in", "out", "gain_db", "fade") if k in c}
+            for k in ("gain_db", "fade", "afade_in", "afade_out", "speed"):
+                c.pop(k, None)
+            c["media"], c["in"], c["out"] = project.rel(dst), 0.0, round(d, 6)
+            n += 1
+    return tl, n
 
 
 def _audio_input(project: Project, c: dict, idx: int) -> tuple[list[str], str]:

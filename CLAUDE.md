@@ -25,7 +25,7 @@ user prompt + media ──► you (Claude Code / Codex) ──► skills (recipe
 3. **Pick skills** for the request and follow them (each `SKILL.md` lists its commands and checks).
    Typical order: ingest → transcribe (→ speakers / multicam when several people, cameras or
    mics) → rough-cut or silence-cut → zoom-punch / transitions → subtitles → b-roll / music /
-   sfx / motion → color → qa → bake (for NLE export) → export or render → thumbnail / metadata.
+   sfx / motion → color → `ea level` (audio by measured loudness) → `ea shake` (stabilise handheld) → qa → bake (for NLE export) → export or render → thumbnail / metadata.
 4. **Show, then ask**: render a preview (`ea render <p>`), run `ea qa`, give the user the paths and
    a short summary of decisions (what you cut and why). Ask for feedback; apply it with the review
    skill.

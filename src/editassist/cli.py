@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from .project import Project, read_json
+from .project import Project, read_json, write_json
 
 
 def out(obj) -> None:
@@ -66,6 +66,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--max-words", type=int, default=4); p.add_argument("--no-karaoke", action="store_true")
     p.add_argument("--lines", help="timed text json [{start,end,text}] (e.g. a translation) instead of the transcript")
     p.add_argument("--name", help="output base name, e.g. <project>_en")
+    p.add_argument("--fix", action="append", default=[], help='vocabulary fix "heard=right", repeatable')
+    p.add_argument("--font", help="caption font file for burn-in (saved in work/caption_style.json)")
+    p.add_argument("--weight", help="named instance of a variable font, e.g. SemiBold")
+    p.add_argument("--size", type=float, help="caption size, %% of the frame's short side")
+    p.add_argument("--y", type=float, help="caption centre, 0..1 from the top")
+    p.add_argument("--no-stroke", action="store_true"); p.add_argument("--shadow", action="store_true")
 
     p = sub.add_parser("transcript", help="transcript of the EDITED video on timeline time (chapters, notes, translation)")
     p.add_argument("project")
@@ -99,6 +105,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--open", action="store_true", help="auto-import into a running DaVinci Resolve")
     p.add_argument("--current", action="store_true",
                    help="with --open: add the timeline to the project open in Resolve (default: a project named after it)")
+    p.add_argument("--template", help="with --open: build inside an emptied copy of this existing timeline "
+                                      "(keeps the user's subtitle style and track layout)")
 
     p = sub.add_parser("qa", help="automatic checks on timeline, captions and (optionally) a render")
     p.add_argument("project"); p.add_argument("--render"); p.add_argument("--preset", default="youtube")
@@ -147,6 +155,15 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--look", choices=["warm", "cool", "punchy", "film", "bw"]); p.add_argument("--lut", help="creative .cube to add")
     p.add_argument("--strength", type=float, default=1.0); p.add_argument("--reset", action="store_true")
     p.add_argument("--compare", help="media id: write a before/after still")
+
+    p = sub.add_parser("level", help="audio gains from measured loudness by role (dialogue, bed, music, sfx)")
+    p.add_argument("project")
+    for r, v in (("dialogue", -16), ("bed", -30), ("music", -16), ("sfx", -22)):
+        p.add_argument(f"--{r}", type=float, default=v, help=f"target LUFS for {r} clips (default {v})")
+
+    p = sub.add_parser("shake", help="measure handheld shake per video clip; mark shaky ones `stabilize`")
+    p.add_argument("project"); p.add_argument("--threshold", type=float, default=0.6, help="jitter, %% of frame width")
+    p.add_argument("--dry-run", action="store_true")
 
     p = sub.add_parser("bake", help="render crop/zoom (and --color) into files so NLE exports match")
     p.add_argument("project"); p.add_argument("--color", action="store_true", help="also bake the grade")
@@ -291,8 +308,11 @@ def main(argv: list[str] | None = None) -> None:
         pr = Project(a.project)
         tl = T.load(pr)
         if a.action == "validate":
+            fixed = T.normalize_media(pr, tl)
+            if fixed:
+                T.save(pr, tl)
             probs = T.validate(pr, tl)
-            out({"ok": not probs, "problems": probs})
+            out({"ok": not probs, "problems": probs} | ({"normalized_media_paths": fixed} if fixed else {}))
         elif a.action == "json":
             out(tl)
         elif a.action == "ripple":
@@ -304,12 +324,21 @@ def main(argv: list[str] | None = None) -> None:
     elif a.cmd == "subtitles":
         from .subtitles import build, from_lines
         pr = Project(a.project)
+        if a.font or a.weight or a.size or a.y is not None or a.no_stroke or a.shadow:
+            look = read_json(pr.path("work", "caption_style.json"), {}) or {}
+            look.update({k: v for k, v in (("font", a.font and str(Path(a.font).expanduser().resolve())),
+                                           ("weight", a.weight), ("size_pct", a.size), ("y", a.y)) if v is not None})
+            if a.no_stroke:
+                look["stroke"] = False
+            if a.shadow:
+                look["shadow"] = True
+            write_json(pr.path("work", "caption_style.json"), look)
         if a.lines:
             if not a.name:
                 raise SystemExit("--lines needs --name (e.g. <project>_en)")
             out(from_lines(pr, a.lines, a.name, a.style))
         else:
-            out(build(pr, a.style, a.max_words, not a.no_karaoke, a.name))
+            out(build(pr, a.style, a.max_words, not a.no_karaoke, a.name, a.fix))
     elif a.cmd == "transcript":
         from .subtitles import transcript
         out(transcript(Project(a.project)))
@@ -338,7 +367,7 @@ def main(argv: list[str] | None = None) -> None:
     elif a.cmd == "export":
         from .export import TARGETS, export
         targets = list(TARGETS) if "all" in a.to else a.to
-        out(export(Project(a.project), targets, a.open, a.current))
+        out(export(Project(a.project), targets, a.open, a.current, a.template))
     elif a.cmd == "qa":
         from .qa import check
         out(check(Project(a.project), a.render, a.preset))
@@ -423,6 +452,12 @@ def main(argv: list[str] | None = None) -> None:
             out({"compare": color.compare(pr, a.compare)})
         else:
             out(color.grade(pr, a.media, a.auto, a.match, a.look, a.lut, a.strength, a.reset))
+    elif a.cmd == "level":
+        from .levels import level
+        out(level(Project(a.project), {"dialogue": a.dialogue, "bed": a.bed, "music": a.music, "sfx": a.sfx}))
+    elif a.cmd == "shake":
+        from .shake import mark
+        out(mark(Project(a.project), a.threshold, a.dry_run))
     elif a.cmd == "bake":
         from .bake import bake
         out(bake(Project(a.project), a.color))
@@ -482,7 +517,7 @@ def main(argv: list[str] | None = None) -> None:
     elif a.cmd == "setup-done":
         import platform as pf
         import time as tm
-        from .project import ROOT, write_json
+        from .project import ROOT
         marker = ROOT / ".editassist" / "setup.json"
         if a.reset:
             marker.unlink(missing_ok=True)

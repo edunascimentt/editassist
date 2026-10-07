@@ -109,7 +109,8 @@ def to_otio(project: Project, tl: dict):
     return timeline
 
 
-def export(project: Project, targets: list[str], open_resolve: bool = False, into_current: bool = False) -> dict:
+def export(project: Project, targets: list[str], open_resolve: bool = False, into_current: bool = False,
+           template: str | None = None) -> dict:
     import opentimelineio as otio
 
     tl = T.load(project)
@@ -151,7 +152,7 @@ def export(project: Project, targets: list[str], open_resolve: bool = False, int
         otio.adapters.write_to_file(ot, str(p))
         written["resolve"] = project.rel(p)
         if open_resolve:
-            written["resolve_import"] = resolve_import(project, tl, p, into_current)
+            written["resolve_import"] = resolve_import(project, tl, p, into_current, template)
     if "premiere" in targets:
         p = out_dir / f"{name}.xml"
         otio.adapters.write_to_file(ot, str(p), adapter_name="fcp_xml")
@@ -311,7 +312,8 @@ def _resolve_paths() -> tuple[str, str]:
     return ("/opt/resolve/Developer/Scripting/Modules", "/opt/resolve/libs/Fusion/fusionscript.so")
 
 
-def resolve_import(project: Project, tl: dict, otio_path: Path, into_current: bool = False) -> str:
+def resolve_import(project: Project, tl: dict, otio_path: Path, into_current: bool = False,
+                   template: str | None = None) -> str:
     """Create (or reuse) a Resolve project and import the timeline. Resolve must be running, and
     Preferences > System > General > External scripting using must be set to Local.
     into_current: add the timeline to the project open in Resolve instead of one named after it.
@@ -351,16 +353,20 @@ def resolve_import(project: Project, tl: dict, otio_path: Path, into_current: bo
         n += 1
     name = f"{tl['name']} v{n}"
     srt = otio_path.with_suffix(".srt")
-    timeline = mp.ImportTimelineFromFile(str(otio_path), {"timelineName": name, "importSourceClips": True})
+    # a template (the user's styled timeline) can only be honoured by the native build
+    timeline = None if template else mp.ImportTimelineFromFile(str(otio_path), {"timelineName": name,
+                                                                                "importSourceClips": True})
     if not timeline:  # seen on Studio 21.0.0 for every OTIO/XML: build it clip by clip instead
         from .resolve_native import build
 
-        rep = build(project, tl, rp, name, srt=srt)
+        rep = build(project, tl, rp, name, srt=srt, template=template)
         pm.SaveProject()
         notes = ("; " + "; ".join(rep["notes"])) if rep["notes"] else ""
         failed = f", {len(rep['failed'])} clips FAILED: {rep['failed']}" if rep["failed"] else ""
-        return (f"ok (built natively, Resolve rejected the OTIO): project '{rp.GetName()}', timeline '{name}', "
-                f"{rep['placed']} clips, LUT on {rep['luts']}, {rep['slowmo_conformed']} slow-motion copies conformed"
+        how = f"inside a copy of '{template}'" if template else "Resolve rejected the OTIO"
+        return (f"ok (built natively, {how}): project '{rp.GetName()}', timeline '{name}', "
+                f"{rep['placed']} clips, LUT on {rep['luts']}, {rep['speed_conformed']} speed copies conformed, {rep['zooms']} zooms, "
+                f"{rep.get('stabilized', 0)} stabilized, {rep.get('gain_baked', 0)} audio clips at their level"
                 f"{', subtitles placed' if rep.get('subtitles') else ''}{failed}{notes}")
     rp.SetCurrentTimeline(timeline)
     # colour: apply each media's LUT (work/color.json) on node 1 of every clip from that media

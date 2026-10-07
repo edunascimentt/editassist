@@ -25,6 +25,8 @@ Optional clip fields:
   transition_in  {"type": "dissolve" | "dip" | "fade", "dur": 0.5}   at this clip's head
   transition_out {"type": "fade", "dur": 1.0}                         at its tail (to black)
   duck (music under dialogue), fade (audio fade in+out seconds)
+  stabilize (true: handheld shake, set by `ea shake`), role ("dialogue"|"bed"|"music"|"sfx" for `ea level`),
+  lufs (measured by `ea level`)
 """
 from __future__ import annotations
 
@@ -101,6 +103,27 @@ def from_segments(project: Project, segments: list[dict], with_video: bool = Tru
             a1["clips"].append(dict(clip))
         t += seg["out"] - seg["in"]
     return tl
+
+
+def normalize_media(project: Project, tl: dict) -> int:
+    """Rewrite clip media paths to the form work/media.json uses (ingest stores resolved paths, so
+    `input/clip.mp4` that is a symlink is catalogued as its target). Every command matches clips to
+    the catalog by that exact string; a hand-written equivalent path silently lost its transcript,
+    grade and duration checks. Returns how many clips changed."""
+    catalog = read_json(project.path("work", "media.json"), {}) or {}
+    by_real = {}
+    for m in catalog.values():
+        by_real.setdefault(project.abs(m["path"]).resolve().as_posix(), m["path"])
+    changed = 0
+    for tr in tl["tracks"]:
+        for c in tr["clips"]:
+            if "media" not in c:
+                continue
+            known = by_real.get(project.abs(c["media"]).resolve().as_posix())
+            if known and known != c["media"]:
+                c["media"] = known
+                changed += 1
+    return changed
 
 
 def validate(project: Project, tl: dict) -> list[str]:

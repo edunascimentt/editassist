@@ -18,7 +18,10 @@ description: Background music bed (ElevenLabs music generation or a track the us
 3. Add a track to timeline.json:
    `{"kind": "audio", "name": "Music", "clips": [{"media": "...", "in": 0, "out": L, "start": 0,
    "gain_db": -18, "duck": true, "fade": 1.5}]}`
-   `duck: true` lowers it under dialogue in the render (sidechain). `ea export` bakes the same ducking
+   `duck: true` lowers it under dialogue in the render (sidechain). Then ALWAYS `uv run ea level <p>`:
+   it measures every audio clip and sets gains by role (voice -16 LUFS, bed under speech -30, music
+   alone -16, sfx -22). A guessed `gain_db` on a mastered track under a raw lav mic left the music as
+   loud as the voice (user feedback 2026-10-06). Re-run after any audio change. `ea export` bakes the same ducking
    into one stem (`work/baked/music_ducked_*.wav`) for the NLE, because exchange formats only keep gain.
 4. Beats (you can't hear the music, so read them): `uv run ea beats <p> <music id>` writes
    `work/beats/<id>.json` with bpm, every beat and the downbeats (first beat of each bar).

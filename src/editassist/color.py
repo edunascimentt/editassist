@@ -190,6 +190,9 @@ def grade(project: Project, only: list[str] | None = None, auto: bool = False, m
     catalog = media_by_id(project)
     grades = read_json(project.path("work", "color.json"), {}) or {}
     ids = _video_ids(project, only)
+    unknown = sorted(set(only or []) - set(ids))
+    if unknown:  # a shell that doesn't split "$ids" passed one long id: say so instead of grading nothing
+        raise SystemExit(f"no video media with id: {', '.join(unknown)} (ids are in work/media.json)")
     ref_stats = stats(sample_frames(project, match)) if match else None
     out = {}
     for sid in ids:

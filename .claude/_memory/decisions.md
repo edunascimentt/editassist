@@ -69,3 +69,18 @@ instead of creating one. Speed changes the 21.0 API can't set are handled by con
 not by baking, so the NLE keeps the original 4K log media. Music ducking is rendered into a stem on
 every export, because exchange formats carry gain only. CLAUDE.md step 6 makes "fix what you worked
 around, with a regression test" part of every task, at the user's request.
+
+## 2026-10-06 — Resolve native build carries speed, zoom, gain and LUTs without baking video
+Second real edit (a client car reel). Speed-ups are conformed pool copies at any Resolve rate (not only
+S&Q slow motion), centred zooms are item ZoomX/Y, audio gains/fades become small rendered wavs, and
+LUTs are the user's own LUT when possible (Resolve only loads LUTs from its LUT folders). Video stays
+the original 4K log media in the NLE, so the user can still grade and re-time it there. Bake remains
+for what the 21.0 API can't express (off-centre or ramped zooms, odd speeds).
+
+## 2026-10-06 — Measured audio levels, stabilisation and template timelines are part of every edit
+After user feedback on the second real edit (music as loud as the voice, shaky clips, captions
+unstyled, speech trimmed mid-sentence), three steps became tools instead of judgement calls:
+`ea level` (gains from measured loudness by role), `ea shake` (mark handheld clips; Resolve
+Stabilize / ffmpeg deshake), and `ea export --template` (build inside the user's styled timeline,
+since subtitle style can't be set by API). Editorial rule in the rough-cut skill: talking parts keep
+whole sentences; only pauses are closed.

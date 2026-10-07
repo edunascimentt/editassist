@@ -50,13 +50,22 @@ def check(project: Project, render_path: str | None = None, preset: str = "youtu
             add("info", f"caption longer than 42 chars at {l['start']:.2f}s")
         if l["end"] > T.length(tl) + 0.05:
             add("warn", f"caption past end of timeline at {l['start']:.2f}s")
+    a_clips = [(tr, c) for tr in tl["tracks"] if tr["kind"] == "audio" for c in tr["clips"]]
+    if len({tr["name"] for tr, _ in a_clips}) > 1 and not any("lufs" in c for _, c in a_clips):
+        add("warn", "audio gains are guesses, not measured: run `ea level` (music above the voice otherwise)")
     measured = {}
     if render_path:
         src = str(project.abs(render_path))
-        res = run(["ffmpeg", "-v", "info", "-i", src, "-vf", "blackdetect=d=0.25:pix_th=0.08",
+        res = run(["ffmpeg", "-v", "info", "-i", src, "-vf", "blackdetect=d=0:pix_th=0.08",
                    "-af", "ebur128=peak=true,silencedetect=n=-55dB:d=1.5", "-f", "null", "-"])
+        cuts = [c["start"] for tr in tl["tracks"] if tr["kind"] == "video" for c in tr["clips"]] + \
+               [T.end(c) for tr in tl["tracks"] if tr["kind"] == "video" for c in tr["clips"]]
         for a, b in re.findall(r"black_start:([\d.]+) black_end:([\d.]+)", res.stderr):
-            add("warn", f"black frames in render {float(a):.2f}-{float(b):.2f}s")
+            a, b = float(a), float(b)
+            if b - a >= 0.25:
+                add("warn", f"black frames in render {a:.2f}-{b:.2f}s")
+            elif any(abs(a - c) < 0.1 or abs(b - c) < 0.1 for c in cuts):  # one or two frames at a cut
+                add("error", f"black flash at the cut {a:.2f}s ({round((b - a) * tl['fps'])} frames)")
         # an audio stream shorter than the picture (or silent to the end) passes loudness checks unnoticed
         durs = run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,duration", "-of", "csv=p=0", src]).stdout
         sd = {k: float(v) for k, v in (l.split(",")[:2] for l in durs.split() if "," in l) if v not in ("N/A", "")}

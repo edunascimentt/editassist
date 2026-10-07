@@ -45,9 +45,9 @@ def test_phrase_cut_and_captions_follow_the_edit(project):
     T.save(project, tl)
     ws = timeline_words(project, tl)
     assert [w["word"] for w in ws][:2] == ["Primeiro", "o"]
-    assert ws[0]["start"] == pytest.approx(0.08, abs=0.02)  # remapped to timeline time (pad 0.08)
+    assert ws[0]["start"] == pytest.approx(0.12, abs=0.02)  # remapped to timeline time (pad_in 0.12)
     res = subs(project, style="bold")
-    assert (project.path(res["srt"])).read_text(encoding="utf-8").startswith("1\n00:00:00,0")
+    assert (project.path(res["srt"])).read_text(encoding="utf-8").startswith("1\n00:00:00,1")
 
 
 def test_render_with_fx_and_burned_captions(project):
@@ -65,6 +65,70 @@ def test_render_with_fx_and_burned_captions(project):
     out = render(project, "preview", subtitles="output/t.ass")
     assert out.exists()
     assert duration(out) == pytest.approx(T.length(T.load(project)), abs=0.15)
+
+
+def test_resolve_native_luts_only_from_resolve_lut_folders(project, tmp_path, monkeypatch):
+    """Resolve's SetLUT refuses a .cube outside its LUT folders (live, 21.0: our work/color cube was
+    rejected, 'LUT on 0'). A grade that is just a creative LUT uses that LUT; a computed cube is
+    copied into the LUT folder first."""
+    from editassist import color, resolve_native
+
+    lut_root = tmp_path / "ResolveLUT"
+    creative = lut_root / "Custom" / "look.cube"
+    creative.parent.mkdir(parents=True)
+    creative.write_text("LUT_3D_SIZE 2\n" + "\n".join(f"{r} {g} {b}" for b in (0, 1) for g in (0, 1) for r in (0, 1)))
+    monkeypatch.setattr(resolve_native, "resolve_lut_dirs", lambda: [lut_root])
+    rp = _fake_resolve()
+    applied = []
+
+    def set_lut(self, node, path):
+        ok = Path(path).is_relative_to(lut_root)
+        if ok:
+            applied.append(Path(path))
+        return ok
+    monkeypatch.setattr(type(rp.mp.AppendToTimeline([{"srt": 1}])[0]), "SetLUT", set_lut, raising=False)
+    color.grade(project, ["cam_a"], lut=str(creative))
+    color.grade(project, ["cam_b"], look="warm")
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0, "out": 1},
+                                   {"media": "input/cam_b.mp4", "in": 0, "out": 1}])
+    rep = resolve_native.build(project, tl, rp, "lut v1")
+    assert rep["luts"] == 2 and not rep["failed"]
+    assert applied[0] == creative  # the user's own LUT, not our copy of it
+    assert applied[1].parent == lut_root / "editassist" / project.dir.name
+
+
+def test_render_has_no_black_frames_at_cuts(project):
+    """Cuts that don't fall on the output frame grid (59.94 timeline, 2x clips) used to show the black
+    base for one frame at almost every cut (second real edit, 2026-10-06)."""
+    from editassist.ingest import ingest
+    from editassist.render import render
+
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=60000/1001:d=11",
+                    "-f", "lavfi", "-i", "sine=f=220:d=11", "-c:v", "libx264", "-g", "30", "-shortest",
+                    str(project.path("input", "cam60.mp4"))], check=True)
+    ingest(project)
+    tl = T.from_segments(project, [{"media": "input/cam60.mp4", "in": 0.08, "out": 4.98},
+                                   {"media": "input/cam60.mp4", "in": 5.5, "out": 7.98},
+                                   {"media": "input/cam60.mp4", "in": 4.11, "out": 5.0}])
+    tl["fps"] = 59.94  # 59.94 source, cuts at 4.90 and 7.38 s: between output frames
+    v = T.track(tl, "V1")["clips"]
+    v[1]["speed"], v[1]["out"] = 2.0, v[1]["in"] + 2 * 0.917
+    v[2]["start"] = T.end(v[1])
+    a = T.track(tl, "A1")["clips"]
+    a[1]["out"], a[2]["start"] = a[1]["in"] + 0.917, v[2]["start"]
+    T.save(project, tl)
+    out = render(project, "preview")
+    r = subprocess.run(["ffmpeg", "-i", str(out), "-vf", "blackdetect=d=0:pix_th=0.05", "-an", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    assert "black_start" not in r.stderr
+    # and qa catches one if it comes back: blank out the frame at the 4.90 s cut
+    from editassist.qa import check
+
+    bad = project.path("output", "bad.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-i", str(out), "-vf",
+                    "drawbox=c=black:t=fill:enable='between(t,4.89,4.91)'", "-c:a", "copy", str(bad)], check=True)
+    issues = [i["issue"] for i in check(project, "output/bad.mp4")["issues"]]
+    assert any(i.startswith("black flash at the cut 4.9") for i in issues), issues
 
 
 def test_export_roundtrip_and_dissolve(project):
@@ -331,7 +395,7 @@ def test_bite_padding_stops_at_neighbour_words(project):
 
     # "Hoje" starts 3.0; "pessoal." ends 1.5: a 2 s pad must stop at the neighbours, not swallow them
     seg = resolve_segments(project, [{"media": "cam_a", "from": "hoje", "to": "video", "pad": 2.0}])[0]
-    assert seg["in"] == pytest.approx(1.5) and seg["out"] == pytest.approx(6.0)  # "Hum" starts at 6.0
+    assert seg["in"] == pytest.approx(1.52) and seg["out"] == pytest.approx(5.98)  # "Hum" starts at 6.0
 
 
 def test_ntsc_export_writes_fcpx_and_bakes_ducking(project):
@@ -356,8 +420,8 @@ def test_ntsc_export_writes_fcpx_and_bakes_ducking(project):
     assert T.load(project)["tracks"][-1]["clips"][0]["duck"]  # timeline.json itself is untouched
 
 
-def test_resolve_native_build_with_fake_api(project):
-    from editassist import resolve_native
+def _fake_resolve():
+    """Just enough of Resolve's scripting API (media pool, bins, AppendToTimeline) for resolve_native."""
 
     class Item:
         def __init__(self, path, fps):
@@ -391,6 +455,9 @@ def test_resolve_native_build_with_fake_api(project):
             return True
 
         def SetProperty(self, k, v):
+            if k in ("ZoomX", "ZoomY"):
+                self.info[k] = v
+                return True
             return False  # Resolve 21.0: no audio volume
 
     class Tl:
@@ -461,6 +528,12 @@ def test_resolve_native_build_with_fake_api(project):
         def SetCurrentTimeline(self, t):
             return True
 
+    return RP()
+
+
+def test_resolve_native_build_with_fake_api(project):
+    from editassist import resolve_native
+
     tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.5, "out": 1.5},
                                    {"media": "input/cam_a.mp4", "in": 3.0, "out": 4.8}])
     tl["fps"] = 15  # cam_a is 30 fps: speed 0.5 at a 15 fps timeline = conform (S&Q)
@@ -468,16 +541,52 @@ def test_resolve_native_build_with_fake_api(project):
     v[1]["speed"] = 0.5
     v[1]["out"] = v[1]["in"] + 0.9
     T.track(tl, "A1")["clips"][0]["gain_db"] = -3
-    rp = RP()
+    rp = _fake_resolve()
     rep = resolve_native.build(project, tl, rp, "x v1")
     items = rp.mp.tl.items
     assert rep["placed"] == len(items) == 4 and not rep["failed"]
-    assert rep["slowmo_conformed"] == 1
+    assert rep["speed_conformed"] == 1
     slow = [i for i in items if i["mediaType"] == 1][1]
     assert slow["mediaPoolItem"].GetClipProperty("FPS") == 15  # its own conformed pool copy
     assert slow["startFrame"] == 90 and slow["endFrame"] == 117  # frames of the 30 fps file
     assert slow["recordFrame"] == 86400 + round(1.0 * 15)
-    assert any("-3 dB" in n for n in rep["notes"])
+    # Resolve 21.0 can't set clip volume: the -3 dB clip plays a rendered copy at that level
+    assert rep["gain_baked"] == 1 and not any("dB" in n for n in rep["notes"])
+    quiet = [i for i in items if i["mediaType"] == 2][0]
+    wav = Path(quiet["mediaPoolItem"].GetClipProperty("File Path"))
+    assert wav.name.startswith("gain_") and wav.exists()
+    assert quiet["startFrame"] == 0 and T.track(tl, "A1")["clips"][0]["media"] == "input/cam_a.mp4"
+
+
+def test_resolve_native_speed_up_and_zoom(project, monkeypatch):
+    """2x in a 30 fps timeline = a copy conformed to 60 fps (no bake), in its own bin; slow-motion and
+    fast copies of one file don't share a pool item; a centred punch-in sets ZoomX/ZoomY."""
+    from editassist import resolve_native
+
+    assert resolve_native.conform_rate(59.94, 2.0) == 119.88
+    assert resolve_native.conform_rate(59.94, 0.4) == 23.976
+    assert resolve_native.conform_rate(59.94, 1.5) is None  # 89.91 is no conform rate
+    rp = _fake_resolve()
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.0, "out": 1.0},
+                                   {"media": "input/cam_a.mp4", "in": 2.0, "out": 4.0},
+                                   {"media": "input/cam_a.mp4", "in": 5.0, "out": 6.0}])
+    v = T.track(tl, "V1")["clips"]
+    v[0]["zoom"] = {"scale": 1.2, "x": 0.5, "y": 0.5, "ramp": 0}
+    v[1]["speed"] = 2.0
+    v[1]["start"] = 1.0
+    v[2]["speed"] = 0.8  # 24 fps
+    v[2]["start"] = 2.0
+    rep = resolve_native.build(project, tl, rp, "fast v1")
+    vids = [i for i in rp.mp.tl.items if i["mediaType"] == 1]
+    assert rep["speed_conformed"] == 2 and rep["zooms"] == 1 and not rep["failed"]
+    assert [i["mediaPoolItem"].GetClipProperty("FPS") for i in vids] == [30.0, 60.0, 24.0]
+    assert vids[0]["ZoomX"] == vids[0]["ZoomY"] == 1.2
+    assert vids[1]["startFrame"] == 60 and vids[1]["endFrame"] == 120  # frames of the 30 fps file
+    bins = {f.GetName() for f in rp.mp.root.subs[0].subs}
+    assert bins == {"speed 60", "speed 24"}
+    tl["tracks"][0]["clips"][1]["speed"] = 1.5  # 45 fps: no conform rate, must ask for a bake
+    with pytest.raises(SystemExit, match="bake"):
+        resolve_native.build(project, tl, _fake_resolve(), "fast v2")
 
 
 def test_scene_overview_sheets(project):
@@ -518,3 +627,145 @@ def test_ducked_music_runs_past_the_last_word(project):
     tail = y[int(4 * 22050):int(5.5 * 22050)]
     assert len(y) / 22050 == pytest.approx(6.0, abs=0.15)
     assert 20 * np.log10(np.sqrt(np.mean(tail ** 2)) + 1e-9) > -40  # music still playing after the last word
+
+
+def test_validate_normalizes_symlinked_media_paths(project, tmp_path):
+    """Ingest catalogues a symlink in input/ by its target; a timeline written with the input/ path
+    silently lost its transcript (empty captions), grade and duration checks."""
+    from editassist.ingest import ingest
+
+    outside = tmp_path / "card" / "clip.mp4"
+    outside.parent.mkdir()
+    shutil.copy(project.path("input", "cam_a.mp4"), outside)
+    (project.path("input", "linked.mp4")).symlink_to(outside)
+    ingest(project)
+    tl = T.from_segments(project, [{"media": "input/linked.mp4", "in": 0, "out": 1}])
+    assert T.normalize_media(project, tl) == 2  # V1 + A1
+    assert T.track(tl, "V1")["clips"][0]["media"] == outside.resolve().as_posix()
+    assert T.normalize_media(project, tl) == 0
+
+
+def test_color_unknown_media_id_is_an_error(project):
+    from editassist import color
+
+    with pytest.raises(SystemExit, match="no video media with id"):
+        color.grade(project, ["cam_a cam_b"], look="warm")  # zsh: unquoted $ids is one word
+
+
+def test_resolve_native_clips_butt_without_frame_holes(project):
+    """Source and record frames were rounded separately: a 4.90 s clip from 2.08-6.98 of a 59.94 file
+    took 293 source frames but the next clip started 294 frames later, a black frame at 10 cuts of
+    the first client reel (2026-10-06). The source span now follows the record span."""
+    from editassist import resolve_native
+    from editassist.ingest import ingest
+
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=60000/1001:d=11",
+                    "-f", "lavfi", "-i", "sine=f=220:d=11", "-c:v", "libx264", "-shortest",
+                    str(project.path("input", "cam60.mp4"))], check=True)
+    ingest(project)
+    tl = T.from_segments(project, [{"media": "input/cam60.mp4", "in": 2.08, "out": 6.98},
+                                   {"media": "input/cam60.mp4", "in": 7.50, "out": 9.98},
+                                   {"media": "input/cam60.mp4", "in": 0.37, "out": 1.55}])
+    tl["fps"] = 59.94
+    rp = _fake_resolve()
+    resolve_native.build(project, tl, rp, "holes v1")
+    vids = [i for i in rp.mp.tl.items if i["mediaType"] == 1]
+    for a, b in zip(vids, vids[1:]):
+        assert a["endFrame"] - a["startFrame"] == b["recordFrame"] - a["recordFrame"]
+
+
+def test_level_sets_gains_from_measured_loudness(project):
+    """Fixed dB guesses left a mastered music bed louder than a raw lav voice (first client reel):
+    each clip is measured and brought to its role's target."""
+    from editassist.ingest import ingest
+    from editassist.levels import level, segment_lufs
+
+    ingest(project)
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.0, "out": 6.0}])
+    music = next(m["path"] for m in json.loads(project.path("work", "media.json").read_text()).values()
+                 if m["path"].endswith("music_120.wav"))
+    T.track(tl, "Music", "audio")["clips"].append({"media": music, "in": 0, "out": 6, "start": 0, "duck": True,
+                                                   "gain_db": -12})
+    T.save(project, tl)
+    rep = level(project)
+    tl = T.load(project)
+    voice, bed = T.track(tl, "A1")["clips"][0], T.track(tl, "Music")["clips"][0]
+    assert {c["role"] for c in rep["clips"]} == {"dialogue", "bed"}
+    assert segment_lufs(project, voice) + voice["gain_db"] == pytest.approx(-16, abs=0.2)
+    assert segment_lufs(project, bed) + bed["gain_db"] == pytest.approx(-30, abs=0.2)
+
+
+def test_shake_marks_only_handheld_clips(project):
+    from editassist.ingest import ingest
+    from editassist.render import build_cmd
+    from editassist.shake import mark
+
+    still = "testsrc2=s=480x300:r=30,trim=end_frame=1,loop=loop=200:size=1,setpts=N/30/TB"
+    for name, crop in (("pan.mp4", "x='t*20':y=40"),  # smooth camera move: not shake
+                       ("shaky.mp4", "x='40+30*random(1)':y='30+25*random(2)'")):
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", still, "-t", "4",
+                        "-vf", f"crop=320:180:{crop}", "-c:v", "libx264", str(project.path("input", name))], check=True)
+    ingest(project)
+    tl = T.from_segments(project, [{"media": "input/pan.mp4", "in": 0, "out": 3},
+                                   {"media": "input/shaky.mp4", "in": 0, "out": 3}], with_video=True)
+    T.save(project, tl)
+    rep = mark(project)
+    by = {c["media"]: c for c in rep["clips"]}
+    assert by["shaky.mp4"]["stabilize"] and not by["pan.mp4"]["stabilize"]
+    clips = T.track(T.load(project), "V1")["clips"]
+    assert [c.get("stabilize", False) for c in clips] == [False, True]
+    tl = T.load(project)
+    T.track(tl, "V1")["clips"][1]["stabilize"] = False  # a motion graphic: user says leave it
+    T.save(project, tl)
+    assert mark(project)["marked"] == 0 and T.track(T.load(project), "V1")["clips"][1]["stabilize"] is False
+    tl["tracks"][0]["clips"][1]["stabilize"] = True
+    T.save(project, tl)
+    fc = project.path("work", "render_filter.txt")
+    build_cmd(project, T.load(project), project.path("output", "x.mp4"))
+    assert fc.read_text().count("deshake") == 1
+
+
+def test_resolve_native_builds_inside_template_timeline(project):
+    """Subtitle style can't be set through Resolve's API but lives on the track: building inside an
+    emptied copy of the user's styled timeline keeps it. Each build also imports a fresh .srt copy
+    (a pool .srt keeps the text of its first import)."""
+    from editassist import resolve_native
+
+    rp = _fake_resolve()
+    styled = type(rp.mp.CreateEmptyTimeline("x"))()
+    styled.name, styled.items = "Reel v1", [{"old": True}]
+    styled.tracks["subtitle"] = 1
+    copies = []
+
+    def dup(self, name):
+        t = type(self)()
+        t.name, t.items, t.tracks = name, list(self.items), dict(self.tracks)
+        copies.append(t)
+        return t
+    cls = type(styled)
+    cls.GetName = lambda self: self.name
+    cls.DuplicateTimeline = dup
+    cls.GetItemListInTrack = lambda self, kind, i: [x for x in self.items if x.get("old")] if kind == "video" else []
+    cls.DeleteClips = lambda self, items, ripple: [self.items.remove(x) for x in items] or True
+    rp.GetTimelineCount = lambda: 1
+    rp.GetTimelineByIndex = lambda i: styled
+    rp.GetName = lambda: "proj"
+    real_append = type(rp.mp).AppendToTimeline
+
+    def append(self, infos):
+        self.tl = copies[-1]
+        return real_append(self, infos)
+    type(rp.mp).AppendToTimeline = append
+    srt = project.path("output", "t.srt")
+    srt.parent.mkdir(exist_ok=True)
+    srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nOi\n", encoding="utf-8")
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0, "out": 1}])
+    try:
+        rep = resolve_native.build(project, tl, rp, "Reel v2", srt=srt, template="Reel v1")
+    finally:
+        type(rp.mp).AppendToTimeline = real_append
+    built = copies[-1]
+    assert built.name == "Reel v2" and not any(x.get("old") for x in built.items)
+    assert styled.items == [{"old": True}]  # the user's timeline is untouched
+    assert rep["placed"] == 2 and rep["subtitles"]
+    assert list(project.path("work", "baked").glob("t *.srt"))

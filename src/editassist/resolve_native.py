@@ -5,10 +5,14 @@ for every OTIO and FCP7 XML on Resolve Studio 21.0.0, even a 3-clip one). Append
 explicit source/record frames is exact and needs nothing but the media pool.
 
 What 21.0's API can't do, and how it is handled:
-- constant speed: no TimelineItem.SetSpeed (21.1+). A 59.94 clip slowed to the timeline rate (0.4 at
-  23.976) gets its own pool copy conformed to the timeline fps (the camera S&Q workflow, full quality).
+- constant speed: no TimelineItem.SetSpeed (21.1+). A clip at speed s gets its own pool copy conformed
+  to source fps x s when that is a rate Resolve can conform to: a 59.94 clip slowed to 0.4 in a 23.976
+  timeline (the camera S&Q workflow), or sped up 2x as 119.88 in a 59.94 timeline. Full quality, the
+  original media stays linked. One pool copy per (file, rate), in editassist/speed <rate>.
   Any other speed needs `ea bake` first.
-- clip gain: audio items expose no Volume property; gains are reported for the user to set (or bake).
+- zoom: centred punch-ins set ZoomX/ZoomY on the item; an off-centre zoom is reported.
+- clip gain / audio fades: audio items expose no Volume property and there is no SetFades, so audio
+  clips with a gain or fade are placed as rendered copies with both applied (bake.gain_copies).
 - fades / dips: no SetFades (21.1+); reported.
 """
 from __future__ import annotations
@@ -27,37 +31,127 @@ def _folder(mp, parent, name):
     return mp.AddSubFolder(parent, name)
 
 
+# Clip Attributes > Frame Rate choices in Resolve (what SetClipProperty("FPS", ...) can conform to)
+CONFORM_RATES = (16, 18, 23.976, 24, 25, 29.97, 30, 47.952, 48, 50, 59.94, 60, 72, 95.904, 96, 100, 119.88, 120)
+
+
+def conform_rate(src_fps: float, speed: float, timeline_fps: float | None = None) -> float | None:
+    """The Resolve conform rate that plays a `src_fps` clip at `speed` (frame for frame), or None.
+    The timeline's own rate always counts (S&Q footage conformed to the project rate)."""
+    want = src_fps * speed
+    if not want:
+        return None
+    best = min(CONFORM_RATES + ((timeline_fps,) if timeline_fps else ()), key=lambda r: abs(r - want))
+    return best if abs(best - want) <= 0.002 * want else None
+
+
+def _rate_name(r: float) -> str:
+    return f"speed {r:g}"
+
+
+def resolve_lut_dirs() -> list[Path]:
+    """Folders Resolve loads LUTs from (SetLUT refuses a .cube anywhere else)."""
+    import os
+    import platform
+
+    system = platform.system()
+    if system == "Darwin":
+        return [Path("/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"),
+                Path.home() / "Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"]
+    if system == "Windows":
+        return [Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "Blackmagic Design/DaVinci Resolve/Support/LUT"]
+    return [Path("/opt/resolve/LUT"), Path.home() / ".local/share/DaVinciResolve/LUT"]
+
+
+def lut_for_resolve(project: Project, grade: dict) -> str | None:
+    """The .cube to hand Resolve for a media's grade: the creative LUT itself when the grade is just
+    that LUT (it already lives in Resolve's LUT folder, as the user's own LUTs do), else our baked
+    cube. Resolve's SetLUT accepts only files inside its LUT folders: see _install_lut."""
+    ops = grade.get("ops") or []
+    if len(ops) == 1 and ops[0].get("op") == "lut" and project.abs(ops[0]["file"]).exists():
+        return str(project.abs(ops[0]["file"]))
+    return str(project.abs(grade["lut"])) if grade.get("lut") else None
+
+
+def _install_lut(project: Project, lut: str, rp) -> str | None:
+    """Copy a .cube into Resolve's LUT folder (editassist/<project>/) and refresh, so SetLUT takes it."""
+    import shutil
+
+    for d in resolve_lut_dirs():
+        dst = d / "editassist" / project.dir.name / Path(lut).name
+        try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(lut, dst)
+        except OSError:
+            continue
+        if hasattr(rp, "RefreshLUTList"):
+            rp.RefreshLUTList()
+        return str(dst)
+    return None
+
+
 def _key(path) -> str:
     return Path(path).resolve().as_posix()
 
 
-def _pool_by_path(folder, out=None) -> dict:
-    """Every clip in the pool under `folder`, by resolved file path (first one wins)."""
+def _conformed_bin(name: str) -> bool:
+    """Our bins of conformed copies (their FPS no longer matches the file): never reuse them as-is."""
+    return name.startswith("speed ") or name == "slowmo"
+
+
+def _pool_by_path(folder, out=None, top_only: bool = False) -> dict:
+    """Every clip in the pool under `folder`, by resolved file path (first one wins), skipping the
+    bins of conformed copies. `top_only`: that folder's own clips, no subfolders."""
     out = {} if out is None else out
     for c in folder.GetClipList() or []:
         p = c.GetClipProperty("File Path")
         if p:
             out.setdefault(_key(p), c)
-    for sub in folder.GetSubFolderList() or []:
-        _pool_by_path(sub, out)
+    if not top_only:
+        for sub in folder.GetSubFolderList() or []:
+            if not _conformed_bin(sub.GetName()):
+                _pool_by_path(sub, out)
     return out
 
 
-def build(project: Project, tl: dict, rp, name: str, srt: Path | None = None, folder_name: str = "editassist") -> dict:
-    """Create timeline `name` in Resolve project `rp` from `tl`. Returns a report dict."""
+def _from_template(rp, template: str, name: str):
+    """Duplicate the user's timeline `template` as `name` and empty it. Track styles (the subtitle
+    track's font/size/position, which no API can set) and track names/layout survive."""
+    src = next((t for t in (rp.GetTimelineByIndex(i + 1) for i in range(rp.GetTimelineCount()))
+                if t and t.GetName() == template), None)
+    if not src:
+        raise SystemExit(f"template timeline {template!r} not found in project {rp.GetName()!r}")
+    dup = src.DuplicateTimeline(name)
+    if not dup:
+        raise SystemExit(f"Resolve could not duplicate {template!r}")
+    for kind in ("video", "audio", "subtitle"):
+        for i in range(1, (dup.GetTrackCount(kind) or 0) + 1):
+            items = dup.GetItemListInTrack(kind, i) or []
+            if items:
+                dup.DeleteClips(items, False)
+    return dup
+
+
+def build(project: Project, tl: dict, rp, name: str, srt: Path | None = None, folder_name: str = "editassist",
+          template: str | None = None) -> dict:
+    """Create timeline `name` in Resolve project `rp` from `tl`. Returns a report dict.
+    `template`: build inside an emptied copy of that existing timeline (keeps its subtitle style)."""
     from .videofx import media_grade
 
+    from .bake import gain_copies
+
+    tl, gained = gain_copies(project, tl)
     mp = rp.GetMediaPool()
     fps = exact_fps(tl["fps"])
     catalog = {m["path"]: m for m in (read_json(project.path("work", "media.json"), {}) or {}).values()}
     root = _folder(mp, mp.GetRootFolder(), folder_name)
-    slow_dir = _folder(mp, root, "slowmo")
-    report = {"timeline": name, "placed": 0, "failed": [], "slowmo_conformed": 0, "luts": 0, "notes": []}
+    report = {"timeline": name, "placed": 0, "failed": [], "speed_conformed": 0, "luts": 0, "zooms": 0,
+              "gain_baked": gained, "notes": []}
 
-    # media already anywhere in the pool is reused (the user's own bins); the rest is imported here
+    # media already anywhere in the pool is reused (the user's own bins); the rest is imported here.
+    # Speed changes need their own conformed copy per rate, kept in editassist/speed <rate>.
     pool = _pool_by_path(mp.GetRootFolder())
-    slow_pool = _pool_by_path(slow_dir)
-    need, slow_need = set(), set()
+    need, speed_need = set(), {}  # speed_need: rate -> paths
     for tr in tl["tracks"]:
         for c in tr["clips"]:
             p = _key(project.abs(c["media"]))
@@ -66,32 +160,43 @@ def build(project: Project, tl: dict, rp, name: str, srt: Path | None = None, fo
                 raise SystemExit(f"{Path(p).name}: audio at speed {sp}; run `ea bake <project>` first")
             if tr["kind"] == "video" and sp != 1.0:
                 src_fps = (catalog.get(c["media"]) or {}).get("fps") or 0
-                if abs(src_fps * sp - fps) > 0.05 * fps:
-                    raise SystemExit(f"{Path(p).name}: speed {sp} at {src_fps} fps can't be conformed to {fps:.3f}; "
-                                     "run `ea bake <project>` first")
-                slow_need.add(p)
-            need.add(p)
+                rate = conform_rate(src_fps, sp, fps)
+                if not rate:
+                    raise SystemExit(f"{Path(p).name}: speed {sp} at {src_fps} fps is no Resolve conform rate "
+                                     f"({src_fps * sp:.3f}); run `ea bake <project>` first")
+                speed_need.setdefault(rate, set()).add(p)
+            else:
+                need.add(p)
     mp.SetCurrentFolder(root)
     missing = sorted(p for p in need if p not in pool)
     if missing:
         mp.ImportMedia(missing)
         pool = _pool_by_path(mp.GetRootFolder())
-    mp.SetCurrentFolder(slow_dir)
-    missing = sorted(p for p in slow_need if p not in slow_pool)
-    if missing:
-        mp.ImportMedia(missing)
-        slow_pool = _pool_by_path(slow_dir)
-    for p in slow_need:
-        item = slow_pool.get(p)
-        if item and abs(float(item.GetClipProperty("FPS") or 0) - fps) > 0.01:
-            if item.SetClipProperty("FPS", f"{fps:.3f}"):
-                report["slowmo_conformed"] += 1
-    lost = [Path(p).name for p in need if p not in pool] + [Path(p).name for p in slow_need if p not in slow_pool]
+    speed_pool = {}
+    for rate, paths in speed_need.items():
+        d = _folder(mp, root, _rate_name(rate))
+        got = _pool_by_path(d, top_only=True)
+        mp.SetCurrentFolder(d)
+        missing = sorted(p for p in paths if p not in got)
+        if missing:
+            mp.ImportMedia(missing)
+            got = _pool_by_path(d, top_only=True)
+        for p in paths:
+            item = got.get(p)
+            if not item:
+                continue
+            if abs(float(item.GetClipProperty("FPS") or 0) - rate) > 0.01:
+                if not item.SetClipProperty("FPS", f"{rate:.3f}".rstrip("0").rstrip(".")):
+                    raise SystemExit(f"Resolve refused to conform {Path(p).name} to {rate} fps")
+                report["speed_conformed"] += 1
+            speed_pool[(p, rate)] = item
+    lost = [Path(p).name for p in need if p not in pool] + [Path(p).name for r, ps in speed_need.items()
+                                                          for p in ps if (p, r) not in speed_pool]
     if lost:
         raise SystemExit("Resolve did not import: " + ", ".join(sorted(set(lost))))
 
     mp.SetCurrentFolder(root)
-    tlo = mp.CreateEmptyTimeline(name)
+    tlo = _from_template(rp, template, name) if template else mp.CreateEmptyTimeline(name)
     if not tlo:
         raise SystemExit(f"Resolve could not create timeline {name!r}")
     rp.SetCurrentTimeline(tlo)
@@ -109,21 +214,27 @@ def build(project: Project, tl: dict, rp, name: str, srt: Path | None = None, fo
         for i, t in enumerate(tracks, 1):
             tlo.SetTrackName(kind, i, t["name"])
 
-    luts = {_key(project.abs(k)): str(project.abs(v["lut"])) for k, v in media_grade(project).items() if v.get("lut")}
+    luts = {_key(project.abs(k)): lut_for_resolve(project, v) for k, v in media_grade(project).items() if v.get("lut")}
+    installed: dict[str, str | None] = {}
     gains, fades = [], 0
     for kind, tracks in (("video", vtracks), ("audio", atracks)):
         for ti, t in enumerate(tracks, 1):
             for c in t["clips"]:
                 p = _key(project.abs(c["media"]))
-                slow = kind == "video" and c.get("speed", 1.0) != 1.0
-                item = slow_pool[p] if slow else pool[p]
                 m = catalog.get(c["media"]) or {}
+                sp = c.get("speed", 1.0) if kind == "video" else 1.0
+                item = speed_pool[(p, conform_rate(m.get("fps") or 0, sp, fps))] if sp != 1.0 else pool[p]
                 # source frames count the file's own frames; a wav is counted at the clip's pool rate
                 src_fps = m.get("fps") if m.get("has_video") else float(item.GetClipProperty("FPS") or fps)
                 src_fps = exact_fps(src_fps or fps)
-                info = {"mediaPoolItem": item, "startFrame": round(c["in"] * src_fps),
-                        "endFrame": round(c["out"] * src_fps), "trackIndex": ti,
-                        "recordFrame": start0 + round(c["start"] * fps), "mediaType": 1 if kind == "video" else 2}
+                # record frames from absolute times, the source span derived from the record length:
+                # rounding both ends separately left 1-frame holes between clips (seen live, 21.0)
+                rec, rec_end = round(c["start"] * fps), round(T.end(c) * fps)
+                play = exact_fps(conform_rate(m.get("fps") or 0, sp, fps)) if sp != 1.0 else src_fps
+                first = round(c["in"] * src_fps)
+                info = {"mediaPoolItem": item, "startFrame": first,
+                        "endFrame": first + round((rec_end - rec) * play / fps), "trackIndex": ti,
+                        "recordFrame": start0 + rec, "mediaType": 1 if kind == "video" else 2}
                 res = mp.AppendToTimeline([info])
                 if not res:
                     report["failed"].append(f"{kind} {t['name']} {Path(p).name} @{c['start']:.2f}s")
@@ -132,15 +243,44 @@ def build(project: Project, tl: dict, rp, name: str, srt: Path | None = None, fo
                 it = res[0]
                 lut = (c.get("color") or {}).get("lut")
                 lut = str(project.abs(lut)) if lut else luts.get(p)
-                if kind == "video" and lut and it.SetLUT(1, lut):
-                    report["luts"] += 1
+                if kind == "video" and lut:
+                    ok = it.SetLUT(1, lut)
+                    if not ok:  # outside Resolve's LUT folders: install a copy there, once per file
+                        if lut not in installed:
+                            installed[lut] = _install_lut(project, lut, rp)
+                        ok = bool(installed[lut]) and it.SetLUT(1, installed[lut])
+                    if ok:
+                        report["luts"] += 1
+                    else:
+                        report["failed"].append(f"LUT {Path(lut).name} on {Path(p).name} @{c['start']:.2f}s")
+                if kind == "video" and c.get("stabilize"):
+                    if hasattr(it, "Stabilize") and it.Stabilize():
+                        report["stabilized"] = report.get("stabilized", 0) + 1
+                    else:
+                        report["notes"].append(f"{Path(p).name} @{c['start']:.2f}s: stabilize by hand (Inspector)")
+                z = c.get("zoom") if kind == "video" else None
+                if z and z.get("scale", 1) != 1:
+                    if z.get("ramp") or abs(z.get("x", .5) - .5) > .01 or abs(z.get("y", .5) - .5) > .01:
+                        report["notes"].append(f"{Path(p).name} @{c['start']:.2f}s: push-in / off-centre zoom "
+                                               f"{z} to set by hand (centred ZoomX/Y set)")
+                    if it.SetProperty("ZoomX", float(z["scale"])) and it.SetProperty("ZoomY", float(z["scale"])):
+                        report["zooms"] += 1
                 if kind == "audio" and c.get("gain_db") and not it.SetProperty("Volume", c["gain_db"]):
                     gains.append(f"{t['name']} @{c['start']:.2f}s {c['gain_db']:+g} dB")
                 if c.get("transition_in") or c.get("transition_out"):
                     fades += 1
     if srt and srt.exists():
+        import hashlib
+        import shutil
+
+        # a pool .srt keeps the text it had when first imported: re-importing the same path after
+        # editing captions gave the OLD cues. Each build imports a copy named by its content.
+        digest = hashlib.sha1(srt.read_bytes()).hexdigest()[:8]
+        fresh = project.path("work", "baked", f"{srt.stem} {digest}.srt")
+        fresh.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(srt, fresh)
         mp.SetCurrentFolder(root)
-        sub = (mp.ImportMedia([str(srt)]) or [None])[0]
+        sub = (mp.ImportMedia([str(fresh)]) or [None])[0]
         if sub:
             if not tlo.GetTrackCount("subtitle"):
                 tlo.AddTrack("subtitle")

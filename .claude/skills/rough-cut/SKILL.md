@@ -20,7 +20,13 @@ description: Build a first cut from the user's goal or script by choosing the be
 6. `uv run ea timeline <p>` for length; adjust segments until it fits the target.
 7. Preview + summary: list the bites with one line each on why they are there.
 
-Padding (`pad`, default 0.08 s) never reaches into the neighbouring words, so a bite doesn't start
+Talking parts (presenter, interview): keep WHOLE sentences. Cut only between sentences or inside
+pauses longer than ~0.8 s; never trim a clause out of the middle of a sentence to save time, and
+never end a bite at Whisper's word end without room (word ends come early). If the video is too long,
+drop whole sentences and say which. User feedback 2026-10-06: "a fala dele foi cortada em vários
+momentos" after mid-sentence trims and tight padding.
+
+Padding (`pad_in` 0.12 s, `pad_out` 0.30 s by default; `pad` sets both) never reaches into the neighbouring words, so a bite doesn't start
 with the tail of the previous sentence ("ali Eu quero...").
 
 Several cameras or a separate audio recorder: multicam skill (`ea sync` aligns them by sound,

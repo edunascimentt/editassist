@@ -51,9 +51,12 @@ def build_cmd(project: Project, tl: dict, out: Path, preset: str = "preview",
             else:
                 args += ["-ss", f"{c['in']:.3f}", "-t", f"{c['out'] - c['in']:.3f}", "-i", str(src)]
             if tr["kind"] == "video":
+                # clip edges snapped to the output frame grid, last frame held: a start between two
+                # frames (or a decode one frame short) left the black base showing for a frame at cuts
+                a, b = round(c["start"] * fps) / fps, round((c["start"] + d) * fps) / fps
                 chain = ",".join(clip_vfilter(project, c, W, H, fps, grades=grades))
-                fc.append(f"[{idx}:v]{chain},setpts=PTS+{c['start']:.3f}/TB[v{idx}]")
-                vlabels.append((f"v{idx}", c["start"], c["start"] + d))
+                fc.append(f"[{idx}:v]{chain},tpad=stop_mode=clone:stop=2,setpts=PTS+{a:.6f}/TB[v{idx}]")
+                vlabels.append((f"v{idx}", a - 0.5 / fps, b - 0.5 / fps))  # half-frame margins: t is inexact
             else:
                 gain = c.get("gain_db", 0)
                 tempo = f"atempo={sp}," if sp != 1.0 else ""
@@ -70,7 +73,7 @@ def build_cmd(project: Project, tl: dict, out: Path, preset: str = "preview",
     last = "base"
     for i, (lbl, a, b) in enumerate(vlabels):
         nxt = f"o{i}"
-        fc.append(f"[{last}][{lbl}]overlay=eof_action=pass:enable='between(t,{a:.3f},{b:.3f})'[{nxt}]")
+        fc.append(f"[{last}][{lbl}]overlay=eof_action=pass:enable='between(t,{a:.6f},{b:.6f})'[{nxt}]")
         last = nxt
     vf_tail = []
     if subtitles:

@@ -43,6 +43,8 @@ def clip_vfilter(project: Project, c: dict, W: int, H: int, fps: float, t_offset
     crop = c.get("crop")
     if crop:
         f.append(f"crop={crop['w']}:{crop['h']}:{crop['x']}:{crop['y']}")
+    if c.get("stabilize"):  # handheld shake (ea shake); Resolve gets Stabilize() on the item instead
+        f.append("deshake=rx=32:ry=32:edge=mirror")
     sp = c.get("speed", 1.0)
     f.append(f"setpts=(PTS-STARTPTS)/{sp}" if sp != 1.0 else "setpts=PTS-STARTPTS")
     f.append(f"fps={fps}")

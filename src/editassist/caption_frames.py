@@ -21,12 +21,27 @@ def has_libass() -> bool:
     return any(line.split()[1:2] == ["ass"] for line in res.stdout.splitlines() if len(line.split()) > 1)
 
 
-def _font(kind: str, size: int):
+def _font(kind: str, size: int, look: dict | None = None):
     from PIL import ImageFont
 
+    look = look or {}
+    if look.get("font") and Path(look["font"]).exists():  # the user's own caption font (caption_style.json)
+        f = ImageFont.truetype(look["font"], size)
+        if look.get("weight"):
+            try:  # variable fonts (Inter...): pick the named instance
+                f.set_variation_by_name(look["weight"])
+            except Exception:  # noqa: BLE001  static font or unknown instance name: keep the default
+                pass
+        return f
     if FONTS[kind].exists():
         return ImageFont.truetype(str(FONTS[kind]), size)
     return ImageFont.load_default(size)
+
+
+def caption_look(project: Project) -> dict:
+    """work/caption_style.json: the user's caption look for this project (font file, weight, size as %
+    of the short side, y centre 0..1 from the top, stroke on/off), written by `ea subtitles --font ...`."""
+    return read_json(project.path("work", "caption_style.json"), {}) or {}
 
 
 def build(project: Project, W: int, H: int, captions_file: str = "work/captions.json") -> Path:
@@ -36,11 +51,12 @@ def build(project: Project, W: int, H: int, captions_file: str = "work/captions.
     if not caps:
         raise SystemExit("no work/captions.json: run `ea subtitles <project>` first")
     style = caps.get("style", "clean")
-    upper = style == "bold"
-    base = int(min(W, H) * (0.06 if style == "bold" else 0.046))  # short side: vertical frames would overflow
+    look = caption_look(project)
+    upper = look.get("upper", style == "bold")
+    base = int(min(W, H) * (look.get("size_pct") or (6.0 if style == "bold" else 4.6)) / 100)  # short side
     accent = caps.get("accent", "#FFE500").lstrip("#")
     accent = tuple(int(accent[i:i + 2], 16) for i in (0, 2, 4)) + (255,)
-    y_center = H * (0.5 if style == "bold" else 0.86)
+    y_center = H * (look.get("y") if look.get("y") is not None else (0.5 if style == "bold" else 0.86))
     out = project.path("work", "caption_frames")
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.png"):
@@ -71,14 +87,14 @@ def build(project: Project, W: int, H: int, captions_file: str = "work/captions.
         toks = [unicodedata.normalize("NFC", x["word"].upper() if upper else x["word"]) for x in ws]
         size = base
         while True:  # shrink long lines until they fit inside 88% of the width
-            font = _font("bold" if style == "bold" else "regular", size)
+            font = _font("bold" if style == "bold" else "regular", size, look)
             space = d.textlength(" ", font=font)
             widths = [d.textlength(tk, font=font) for tk in toks]
             total = sum(widths) + space * (len(toks) - 1)
             if total <= W * 0.88 or size <= base * 0.5:
                 break
             size = int(size * 0.92)
-        stroke = max(2, size // 12)
+        stroke = max(2, size // 12) if look.get("stroke", True) else 0
         x = (W - total) / 2
         if style == "boxed":
             pad = size * 0.35
@@ -86,6 +102,9 @@ def build(project: Project, W: int, H: int, captions_file: str = "work/captions.
                                 radius=size * 0.25, fill=(0, 0, 0, 170))
         for j, tk in enumerate(toks):
             fill = accent if j == active else (255, 255, 255, 255)
+            if look.get("shadow"):
+                off = max(2, size // 20)
+                d.text((x + off, y_center + off), tk, font=font, fill=(0, 0, 0, 150), anchor="lm")
             d.text((x, y_center), tk, font=font, fill=fill, anchor="lm",
                    stroke_width=0 if style == "boxed" else stroke, stroke_fill=(0, 0, 0, 255))
             x += widths[j] + space

@@ -108,6 +108,9 @@ def _neighbours(ws: list[dict], a: float, b: float) -> tuple[float, float]:
     return prev_end, next_start
 
 
+PAD_IN, PAD_OUT = 0.12, 0.30
+
+
 def resolve_segments(project: Project, spec: list[dict]) -> list[dict]:
     """Segment specs written by the model. Each item is either
       {"media": "<id or path>", "in": 1.2, "out": 5.0}
@@ -133,10 +136,12 @@ def resolve_segments(project: Project, spec: list[dict]) -> list[dict]:
             seg["out"] = after[0]["out"]
         else:
             seg["in"], seg["out"] = float(s["in"]), float(s["out"])
-        pad = s.get("pad", 0.08)
+        # Whisper puts word ends early (final consonants, breath): a bite cut at the word end sounds
+        # clipped. More room after than before; padding never reaches into the neighbouring words.
+        pad_in, pad_out = s.get("pad_in", s.get("pad", PAD_IN)), s.get("pad_out", s.get("pad", PAD_OUT))
         prev_end, next_start = _neighbours(words(project, sid), seg["in"], seg["out"])
-        seg["in"] = max(0.0, prev_end, seg["in"] - pad)  # padding never reaches into the next/previous word
-        seg["out"] = min(catalog[sid]["duration"] or seg["out"] + pad, next_start, seg["out"] + pad)
+        seg["in"] = max(0.0, prev_end + 0.02 if prev_end else 0.0, seg["in"] - pad_in)
+        seg["out"] = min(catalog[sid]["duration"] or seg["out"] + pad_out, next_start - 0.02, seg["out"] + pad_out)
         out.append(seg)
     return out
 

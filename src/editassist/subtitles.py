@@ -30,7 +30,9 @@ def timeline_words(project: Project, tl: dict) -> list[dict]:
             continue
         for w in words(project, sid):
             mid = (w["start"] + w["end"]) / 2
-            if c["in"] <= mid <= c["out"]:
+            # a word that starts inside the kept audio is heard even when Whisper stretched its end
+            # over the following pause (its midpoint then falls after the cut)
+            if c["in"] <= mid <= c["out"] or c["in"] <= w["start"] <= c["out"] - 0.05:
                 sp = c.get("speed", 1.0)
                 a = c["start"] + (max(w["start"], c["in"]) - c["in"]) / sp
                 b = c["start"] + (min(w["end"], c["out"]) - c["in"]) / sp
@@ -41,15 +43,43 @@ def timeline_words(project: Project, tl: dict) -> list[dict]:
     return out
 
 
-def group(ws: list[dict], max_words: int = 4, max_chars: int = 28, max_gap: float = 0.6) -> list[dict]:
+# short words a caption line should not end on: they belong to what follows ("na | casa" reads badly)
+CLINGY = {"o", "a", "os", "as", "um", "uma", "de", "da", "do", "das", "dos", "na", "no", "nas", "nos", "em",
+          "e", "que", "pra", "para", "por", "com", "se", "ao", "à", "mais", "the", "an", "of", "to", "in",
+          "on", "and", "for", "with", "at", "el", "la", "los", "las", "y", "en", "del", "como"}
+
+
+def _num(t: str) -> bool:
+    return t[:1].isdigit()
+
+
+def _clings(last: dict, nxt: dict) -> bool:
+    """`last` belongs on the next line: a function word, or a word glued to a number ("Stage 2",
+    "600 cavalos")."""
+    t = last["word"]
+    if t.endswith((",", ".", "!", "?", ";", ":")):
+        return False
+    return t.lower() in CLINGY or _num(t) or _num(nxt["word"])
+
+
+def group(ws: list[dict], max_words: int = 4, max_chars: int = 28, max_gap: float = 0.6,
+          phrase: bool = True) -> list[dict]:
+    """Words -> caption lines. `phrase`: also break after a comma, and never end a line on a short
+    function word when it can move to the next line."""
     lines, cur = [], []
     for w in ws:
         text = " ".join(x["word"] for x in cur + [w])
         brk = cur and (len(cur) >= max_words or len(text) > max_chars or w["start"] - cur[-1]["end"] > max_gap
-                       or cur[-1]["word"].endswith((".", "?", "!")) or cur[-1].get("speaker") != w.get("speaker"))
+                       or cur[-1]["word"].endswith((".", "?", "!")) or cur[-1].get("speaker") != w.get("speaker")
+                       or (phrase and cur[-1]["word"].endswith((",", ";", ":"))))
         if brk:
+            carry = []
+            while phrase and len(cur) > 1 and len(carry) < 2 and _clings(cur[-1], carry[0] if carry else w) \
+                    and w["start"] - cur[-1]["end"] <= max_gap \
+                    and not (len(cur) == 2 and cur[0]["word"].lower() in CLINGY):  # no lone "o" line
+                carry.insert(0, cur.pop())
             lines.append(cur)
-            cur = []
+            cur = carry
         cur.append(w)
     if cur:
         lines.append(cur)
@@ -102,10 +132,49 @@ def _ass_ts(t: float) -> str:
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
+def apply_fixes(ws: list[dict], fixes: list[str]) -> list[dict]:
+    """Vocabulary fixes "heard=right" (case-insensitive, multi-word, punctuation kept), e.g.
+    "loud control=launch control", "prêmio=premium"; an empty right side drops the words."""
+    import re
+
+    out = list(ws)
+    for f in fixes or []:
+        if "=" not in f:
+            raise SystemExit(f"--fix needs heard=right: {f!r}")
+        old, new = (x.split() for x in f.split("=", 1))
+        norm = lambda t: re.sub(r"[^\w]", "", t.lower())
+        i = 0
+        while i + len(old) <= len(out):
+            if [norm(x["word"]) for x in out[i:i + len(old)]] == [norm(x) for x in old]:
+                span = out[i:i + len(old)]
+                tail = re.sub(r"^.*?([.,!?;:]*)$", r"\1", span[-1]["word"])
+                a, b = span[0]["start"], span[-1]["end"]
+                # the right side stays ONE caption token, so "launch control" never splits over two lines
+                rep = [{**span[0], "word": " ".join(new) + tail, "start": a, "end": b}] if new else []
+                out[i:i + len(old)] = rep
+                i += max(len(rep), 1)
+            else:
+                i += 1
+    return out
+
+
+def drop_strays(ws: list[dict], gap: float = 2.0) -> list[dict]:
+    """Whisper hallucinates lone short words in engine noise or music ("A" in the middle of a launch):
+    a 1-2 letter word with silence on both sides (>= 0.8 s, one side >= `gap`) is not a caption."""
+    out = []
+    for i, w in enumerate(ws):
+        before = w["start"] - ws[i - 1]["end"] if i else gap
+        after = ws[i + 1]["start"] - w["end"] if i + 1 < len(ws) else gap
+        if len(w["word"].strip(".,!?")) <= 2 and min(before, after) >= 0.8 and max(before, after) >= gap:
+            continue
+        out.append(w)
+    return out
+
+
 def build(project: Project, style: str = "clean", max_words: int = 4, karaoke: bool = True,
-          out_name: str | None = None) -> dict:
+          out_name: str | None = None, fixes: list[str] | None = None) -> dict:
     tl = T.load(project)
-    ws = timeline_words(project, tl)
+    ws = drop_strays(apply_fixes(timeline_words(project, tl), fixes))
     if not ws:
         raise SystemExit("no words on the timeline: transcribe first and make sure A1 has dialogue")
     lines = group(ws, max_words=max_words)

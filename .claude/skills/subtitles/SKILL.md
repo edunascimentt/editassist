@@ -4,8 +4,16 @@ description: Captions synced to the EDITED timeline. SRT for the NLE, styled ASS
 ---
 # subtitles
 
-`uv run ea subtitles <p> [--style clean|bold|boxed] [--max-words 4] [--no-karaoke]`
+`uv run ea subtitles <p> [--style clean|bold|boxed] [--max-words 4] [--no-karaoke] [--fix "heard=right" ...]`
 
+- Lines break on phrases (after commas, never ending on "o/a/de/na..."). Read every line before
+  delivering; polish the few bad splits with `--lines` (from work/captions.json) + `--name`.
+- `--fix "loud control=launch control"`: vocabulary fixes on the edited words (multi-word, kept as one
+  caption token; empty right side drops the words). Lone 1-2 letter words in noise are dropped.
+- The user's caption look for burn-in: `--font <file> --weight SemiBold --size <% of short side>
+  --y <0..1 from top> [--no-stroke] [--shadow]` (saved in work/caption_style.json). In Resolve the
+  look lives on the subtitle TRACK and no API sets it: build with `ea export --open --current
+  --template "<a timeline whose subtitle track the user already styled>"` (export-nle).
 - Run AFTER the cut is final: captions are remapped from source words through timeline.json; re-run
   after any edit.
 - `clean`: bottom, sentence case (YouTube). `bold`: centre, uppercase, highlighted word (shorts).

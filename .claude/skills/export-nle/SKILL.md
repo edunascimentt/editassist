@@ -18,9 +18,21 @@ description: Deliver the edit as an editable project in DaVinci Resolve, Premier
   Resolve (what the user usually means by "no projeto do DaVinci que está aberto"); plain `--open`
   creates/opens a project named after the timeline. If Resolve rejects the OTIO (Studio 21.0.0 did for
   every OTIO/XML), `--open` builds the timeline natively clip by clip (`resolve_native.py`): media
-  already in the user's bins is reused, 59.94 slow-motion clips get conformed pool copies in
-  `editassist/slowmo`, LUTs go on node 1, the SRT lands on a subtitle track. Read the result line: it
-  lists gains and fades the 21.0 API can't set. Never switch the user's project without saying so.
+  already in the user's bins is reused, speed changes become conformed pool copies (2x of 59.94 =
+  119.88, 0.4 = 23.976; one bin per rate, `editassist/speed <rate>`; no bake needed when the rate
+  exists), centred zooms set ZoomX/Y, audio gains/fades are placed as rendered wavs, LUTs go on node 1
+  (the user's own LUT when the grade is just that LUT; Resolve only loads LUTs from its LUT folders),
+  the SRT lands on a subtitle track. Ignore the "run ea bake" warning for clips the native build
+  handles; read the result line for what it couldn't set. Never switch the user's project without
+  saying so, and never script LoadProject while "Untitled Project" is open (a modal save dialog
+  blocks it): ask the user to open the project.
+- `--template "<timeline>"`: build inside an emptied copy of a timeline the user already styled (their
+  subtitle font/size/position are a track property no API can set). Use it whenever the project has a
+  previous version or the client has a styled template; never leave the user restyling captions.
+- Before handing over: check the built timeline for holes (consecutive items must butt) and render or
+  still-check a few frames against the preview.
+- Corrected captions (`ea subtitles --lines ... --name X`): copy `output/X.srt` to
+  `output/<timeline name>.srt` before `--open`, that is the file placed on the subtitle track.
 - With `--open` and Resolve running (Preferences > System >
   General > External scripting using: Local), it saves the current project, then creates/opens a
   project named after the timeline and imports it, plus the SRT into the media pool. Manual: File >
