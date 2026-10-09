@@ -30,7 +30,7 @@
 - Thumbnails: <big face + short text | text only | I make my own>
 
 ## Brand
-<!-- Colours (hex), font, logo path, intro / CTA / end card -->
+<!-- Your own channel: colours (hex), font, logo path, intro / CTA / end card. Clients: clients/<client>/preferences.md -->
 
 ## Never
 <!-- Things to never do in an edit -->

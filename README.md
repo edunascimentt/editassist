@@ -164,7 +164,7 @@ project tier for personal data; CI runs it on every push.
 The agent drives these, but you can also run them yourself (`uv run ea <command> -h` for options):
 
 ```
-ea new <name>                       ea ingest <p> [--proxies]        ea transcribe <p>
+ea new <name> [--client <Name>]     ea ingest <p> [--proxies]        ea transcribe <p>
 ea scenes <p>                       ea find <p> "phrase"             ea transcript <p>
 ea silence-cut <p>                  ea cut <p> segments.json         ea timeline <p> [info|validate|json|ripple]
 ea sync <p> --ref cam_a cam_b mic   ea sync <p> --swap-audio cam_a mic   ea sync <p> --switch T0 T1 cam_b
@@ -185,6 +185,7 @@ ea qa <p> [--render file.mp4]    ea chapters <p> chapters.json    ea thumbnail <
 ea launch new|reference|stills|audit|sfx-kit|vo|music|stretch-music|render|verify <p> ...   (launch films)
 ea resolve-mcp [--setup [version]]     (MCP server for .mcp.json)
 ea memory [--init]                     (where your editing memory lives; seed/migrate it)
+ea client list | new "<Name>" | set <p> "<Name>" | show <p>   (per-client preferences)
 ea keys [--check] | ea keys set NAME < value     ea selftest
 ea doctor
 ```
@@ -201,6 +202,12 @@ projects/<name>/
 
 `projects/` and your editing memory are never committed: each person keeps their own footage and
 taste. To share a style with someone, send them the file from `<memory>/styles/`.
+
+Client work: each client has a folder in the memory, `<memory>/clients/<client>/preferences.md`
+(`ea client new "Ana Souza"`, `ea new <p> --client "Ana Souza"`). On that client's projects
+it overrides your general preferences; feedback about the client goes there, feedback about editing
+in general goes to `preferences.md`. Dictionary fixes with `--scope <client>` apply to all of that
+client's projects.
 
 ## Development
 

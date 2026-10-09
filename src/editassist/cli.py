@@ -32,6 +32,16 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("new", help="create a project folder")
     p.add_argument("name"); p.add_argument("--fps", type=float); p.add_argument("--width", type=int)
     p.add_argument("--height", type=int); p.add_argument("--language"); p.add_argument("--platform")
+    p.add_argument("--client", help='client name ("Ana Souza"): their preferences apply to this project')
+
+    p = sub.add_parser("client", help="per-client preferences (<memory>/clients/<slug>/): list, new, set, show")
+    csub = p.add_subparsers(dest="action", required=True)
+    csub.add_parser("list", help="clients and their projects")
+    q = csub.add_parser("new", help="create <memory>/clients/<slug>/preferences.md"); q.add_argument("name")
+    q = csub.add_parser("set", help="tie a project to a client (creates the client when new)")
+    q.add_argument("project"); q.add_argument("name")
+    q = csub.add_parser("show", help="preference files that apply to a project, in reading order")
+    q.add_argument("project")
 
     p = sub.add_parser("ingest", help="catalog input/ media, extract analysis audio")
     p.add_argument("project"); p.add_argument("--proxies", action="store_true")
@@ -46,7 +56,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--add", nargs="*", default=[], help='"heard=right" (multi-word ok)')
     p.add_argument("--term", nargs="*", default=[], help="right spellings Whisper should know (names, brands)")
     p.add_argument("--note", help="where it was seen (project, date is added)")
-    p.add_argument("--scope", help="only for projects whose name contains this (client-specific words)")
+    p.add_argument("--scope", help="only for this client's projects (client slug or part of the project name)")
     p.add_argument("--apply", action="store_true")
 
     p = sub.add_parser("scenes", help="shot detection + keyframes + contact sheets")
@@ -276,7 +286,15 @@ def main(argv: list[str] | None = None) -> None:
 
     if a.cmd == "new":
         pr = Project.create(a.name, fps=a.fps, width=a.width, height=a.height, language=a.language, platform=a.platform)
-        out({"project": str(pr.dir), "drop_media_into": str(pr.path("input"))})
+        res = {"project": str(pr.dir), "drop_media_into": str(pr.path("input"))}
+        if a.client:
+            from .clients import assign
+            res["client"] = assign(pr, a.client)
+        out(res)
+    elif a.cmd == "client":
+        from . import clients as C
+        out(C.listing() if a.action == "list" else C.create(a.name) if a.action == "new"
+            else C.assign(Project(a.project), a.name) if a.action == "set" else C.show(Project(a.project)))
     elif a.cmd == "ingest":
         from .ingest import ingest
         cat = ingest(Project(a.project), proxies=a.proxies)

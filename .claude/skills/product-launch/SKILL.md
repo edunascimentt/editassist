@@ -9,7 +9,7 @@ the motion designer and your own harshest reviewer: build, render stills, LOOK, 
 fix, repeat. Details: `rules.md` (measurable rules), `playbook.md` (each step's full brief),
 `checklist.md` (before delivery), `styles.md` (variations from the case studies).
 
-## 0. Intake (ask only what's missing; check `<memory>/styles/` for a saved brand)
+## 0. Intake (ask only what's missing; check `<memory>/clients/<client>/` and `<memory>/styles/` for a saved brand)
 - Product, one-sentence promise, audience, call to action (e.g. "Book a demo").
 - Brand: colours, font files, logo SVG, or a Figma / design-token source.
 - Product UI source, best first: an HTML prototype or the live app, then Figma screens, then screenshots.
@@ -92,4 +92,5 @@ verifies the FILE (frames, size, a sheet every 3 s, loudness). Open the verify s
 Formats: `--size 1080x1080`, `--size 1080x1350`, `--size 1080x1920`. Scenes read `useVideoConfig()`, so
 REFLOW the layout per format (don't crop); for 9:16 keep text out of the top 200 px and bottom 250 px.
 Then check every format with `ea launch stills --size ...`.
-Save the brand (palette, fonts, voice, look) as `<memory>/styles/<brand>.md` for the next film.
+Save the brand (palette, fonts, voice, look) in the client's `<memory>/clients/<client>/preferences.md`
+(`ea client new "<Brand>"`) for the next film.

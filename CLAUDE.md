@@ -20,8 +20,11 @@ user prompt + media ──► you (Claude Code / Codex) ──► skills (recipe
    (memory-os global tier `~/.memory-os/memory/editassist/`, private to this user and shared by all
    their accounts; fallback: gitignored `memory/`). Read `preferences.md` (how this user edits) and
    `styles/` (named looks). Missing: `uv run ea memory --init`. Preferences override the defaults below.
-2. **Find or create the project**: `uv run ea new <name>` makes `projects/<name>/`; the user drops
-   media into `projects/<name>/input/`. Never modify files in `input/`.
+   Client work: `uv run ea client show <p>` lists the files to read in order; the client's
+   `clients/<client>/preferences.md` overrides the general file on that client's projects.
+2. **Find or create the project**: `uv run ea new <name> [--client "<Client Name>"]` makes
+   `projects/<name>/`; the user drops media into `projects/<name>/input/`. Never modify files in
+   `input/`. A video for a client always gets its client (ask when you can't tell whose it is).
 3. **Pick skills** for the request and follow them (each `SKILL.md` lists its commands and checks).
    Typical order: ingest → transcribe (→ speakers / multicam when several people, cameras or
    mics) → rough-cut or silence-cut → zoom-punch / transitions → subtitles → b-roll / music /
@@ -30,7 +33,10 @@ user prompt + media ──► you (Claude Code / Codex) ──► skills (recipe
    a short summary of decisions (what you cut and why). Ask for feedback; apply it with the review
    skill.
 5. **Learn**: when the user corrects you or states a preference, write it to `<memory>` (see
-   style-profile skill). Don't wait for the end of the task. Every misheard word (yours or the user's
+   style-profile skill). Don't wait for the end of the task. Decide where it belongs: about this
+   client (their brand, format, music, people, what they asked for) = `clients/<client>/preferences.md`;
+   about editing itself (cuts, levels, sync, NLE habits, "sempre"/"nunca" in general) = `preferences.md`.
+   Unclear: ask "só pro <cliente> ou pra todos?" and say where you saved it. Every misheard word (yours or the user's
    find) goes into the transcription dictionary at once: `uv run ea vocab <p> --add "heard=right" --apply`.
 6. **Improve the tools** (the user wants this editor to improve itself): before you call a task done,
    review it for every place you worked around `ea` (a one-off script, a hand-edited output file, a

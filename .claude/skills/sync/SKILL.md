@@ -1,6 +1,6 @@
 ---
 name: sync
-description: Sync this editassist checkout with the team on GitHub, both ways. Pulls what colleagues pushed (code, skills, project memory) and installs any new dependencies, then commits everything new here (tools, skills, tests, .claude/_memory) and pushes it so the others get it. Use for "commita e dá push", "sobe tudo", "sincroniza o repo", "puxa as novidades", "atualiza o editassist", "sync", "push", "pull", or at the end of a session that changed the repo.
+description: Sync this editassist checkout with the team on GitHub, both ways. Pulls what colleagues pushed (code, skills, project memory) and installs any new dependencies, then commits everything new here (tools, skills, tests, .claude/_memory) and pushes it so the others get it. Use for "commita e dá push", "sobe tudo", "sincroniza o repo", "puxa as novidades", "atualiza o editassist", "git push/pull", or at the end of a session that changed the repo. Not for syncing cameras or audio (that is multicam / `ea sync`).
 ---
 # sync
 

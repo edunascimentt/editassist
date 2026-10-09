@@ -1103,3 +1103,42 @@ def test_resolve_finished_timelines_get_their_own_bin(project):
     old = {f.GetName(): f for f in bins["editassist"].GetSubFolderList()}[R.OLD_BIN]
     assert [c.GetName() for c in old.GetClipList()] == ["Inauguração v1 v1"]
     assert not any(c.GetClipProperty("Type") == "Timeline" for c in bins["editassist"].GetClipList())
+
+
+def test_client_preferences_folder(tmp_path, monkeypatch):
+    """The user wants one folder of preferences per client (2026-10-09, "pasta de clientes, com as
+    preferências de cada cliente"): a project is tied to its client, the client's file is read after
+    the general one, and dictionary fixes scoped to a client apply to all of that client's projects."""
+    import editassist.project as P
+    from editassist import clients, vocab
+
+    monkeypatch.setattr(P, "PROJECTS", tmp_path / "projects")
+    monkeypatch.setenv("EA_MEMORY_DIR", str(tmp_path / "mem"))
+    assert clients.client_slug("Ana Souza") == "ana-souza"
+    assert clients.client_slug("Ótica São João") == "otica-sao-joao"
+
+    reel = P.Project.create("reel-lancamento")
+    res = clients.assign(reel, "Ana Souza")
+    assert res["created"] and res["client"] == "ana-souza"
+    prefs = tmp_path / "mem" / "clients" / "ana-souza" / "preferences.md"
+    assert prefs.read_text(encoding="utf-8").startswith("# Client: Ana Souza")
+    prefs.write_text("# Client: Ana Souza\n\n## Never\n- no zooms\n", encoding="utf-8")
+    assert clients.assign(reel, "ana souza")["created"] is False  # never overwrites her file
+    assert "no zooms" in prefs.read_text(encoding="utf-8")
+
+    shown = clients.show(reel)
+    assert shown["read"][0].endswith("preferences.md") and shown["read"][-1] == str(prefs)
+    assert shown["matched_by"] == "project.json" and shown["client_name"] == "Ana Souza"
+
+    # no "client" in project.json: a known client's slug in the project name is enough
+    clients.create("Acme")
+    car = P.Project.create("acme-carro-cinza")
+    other = P.Project.create("pod")
+    assert clients.client_of(car) == "acme" and clients.show(car)["matched_by"] == "project name"
+    assert clients.client_of(other) is None and "hint" in clients.show(other)
+    assert {c["client"]: c["projects"] for c in clients.listing()["clients"]} == {
+        "ana-souza": ["reel-lancamento"], "acme": ["acme-carro-cinza"]}
+
+    vocab.add(["ana sousa=Ana Souza"], scope="ana-souza")
+    assert vocab.load("reel-lancamento")["fixes"] == ["ana sousa=Ana Souza"]  # name has no "ana-souza"
+    assert vocab.load("pod")["fixes"] == []

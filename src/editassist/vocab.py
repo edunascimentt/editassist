@@ -10,7 +10,7 @@ File format (hand-editable markdown):
 
     ## Fixes
     - Camoriú = Camboriú  (2026-10-08, inauguração conselho tutelar)
-    - prêmio = premium [vulcano]      <- [scope]: only in projects whose name contains it
+    - prêmio = premium [vulcano]      <- [scope]: only in projects of that client / whose name contains it
     - loud control = launch control
     ## Terms
     - Balneário Camboriú              <- right spellings Whisper should know (names, brands)
@@ -25,8 +25,8 @@ from .project import Project, memory_dir, read_json, write_json
 HEADER = """# Transcription dictionary
 
 > Read by `ea transcribe`, `ea vocab --apply` and `ea subtitles`. Add a line every time Whisper gets a
-> word wrong (`uv run ea vocab --add "heard=right" --note "..."`). `[scope]` limits a fix to projects
-> whose name contains it (for words that are only wrong for one client).
+> word wrong (`uv run ea vocab --add "heard=right" --note "..."`). `[scope]` limits a fix to one client's
+> projects (client slug, or part of the project name), for words that are only wrong for that client.
 
 ## Fixes
 
@@ -41,8 +41,13 @@ def path():
 
 
 def load(project_name: str | None = None) -> dict:
-    """{"fixes": ["heard=right", ...], "terms": [...]} for this project (scoped fixes filtered)."""
+    """{"fixes": ["heard=right", ...], "terms": [...]} for this project (scoped fixes filtered: a
+    [scope] matches part of the project name or the project's client, see clients.py)."""
+    from .clients import client_of
+
     f = path()
+    client = client_of(project_name) if project_name else None
+    where = f"{project_name or ''} {client or ''}".lower()
     fixes, terms, section = [], [], None
     if not f.exists():
         return {"fixes": fixes, "terms": terms}
@@ -58,7 +63,7 @@ def load(project_name: str | None = None) -> dict:
             if not m or not m.group(1):
                 continue
             heard, right, scope = m.group(1), m.group(2), m.group(3)
-            if scope and (not project_name or scope.strip().lower() not in project_name.lower()):
+            if scope and (not project_name or scope.strip().lower() not in where):
                 continue
             fixes.append(f"{heard}={right}")
         elif section == "terms":

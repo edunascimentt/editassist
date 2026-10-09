@@ -17,4 +17,5 @@ ProRes 4444, matching the timeline size/fps, and are registered in media.json.
 
 New template: add a component in `remotion/src/`, register it in `Root.tsx` with the shared
 `calculateMetadata`, use `FONT` from `fonts.ts`, then preview with `npm run studio` in `remotion/`.
-Brand colours/fonts come from `<memory>/styles/`.
+Brand colours/fonts come from the client's `<memory>/clients/<client>/preferences.md` (`ea client show <p>`),
+else `<memory>/styles/`.

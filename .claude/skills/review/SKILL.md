@@ -14,8 +14,9 @@ description: Apply the user's feedback on a preview or NLE pass ("cut the part a
 3. Re-run what depends on the change: subtitles after any cut, reformat --bake if clips changed,
    qa, preview.
 4. Reply with what changed, per note.
-5. **Learn**: if the note is a general taste ("I always want tighter cuts", "never use that font"),
-   record it in `<memory>/preferences.md` right away (style-profile skill). One-off fixes are not
-   preferences.
+5. **Learn**: if the note is a lasting taste ("I always want tighter cuts", "never use that font"),
+   record it right away (style-profile skill): in the client's `<memory>/clients/<client>/preferences.md`
+   when it is about this client (`uv run ea client show <p>`), else in `<memory>/preferences.md`.
+   Unclear which: ask "só pro <cliente> ou pra todos?". One-off fixes are not preferences.
    A wrong word in the captions or transcript is never one-off: add it to the dictionary
    (`uv run ea vocab <p> --add "heard=right" --apply`, then re-run subtitles) so it never comes back.

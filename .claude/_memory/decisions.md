@@ -84,3 +84,11 @@ unstyled, speech trimmed mid-sentence), three steps became tools instead of judg
 Stabilize / ffmpeg deshake), and `ea export --template` (build inside the user's styled timeline,
 since subtitle style can't be set by API). Editorial rule in the rough-cut skill: talking parts keep
 whole sentences; only pauses are closed.
+
+## 2026-10-09 — Per-client preferences live in the private editing memory
+`<memory>/clients/<slug>/preferences.md` (`ea client`, `clients.py`), read after the general
+`preferences.md` and overriding it on that client's projects. A project is tied by `"client"` in
+project.json (`ea new --client`, `ea client set`), else by a client slug inside the project name.
+Kept private (not in the repo), like all taste: the repo is public and clients are the user's
+business. Feedback is classified general vs client by the agent (style-profile skill), asking when
+unclear. Supersedes per-client looks in `styles/` (per-client looks move to `clients/<slug>/`).

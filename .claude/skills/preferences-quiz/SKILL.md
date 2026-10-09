@@ -54,6 +54,7 @@ API keys are NOT part of this quiz (editassist-setup does that).
 ## 6. Free text (plain chat message, one at a time, each skippable)
 - Names, brands and jargon Whisper gets wrong ("DaVinte → DaVinci"). → `## Vocabulary`
 - Brand: colours (hex), font, logo file path, things to always include (intro, CTA, end card). → `## Brand`
+  (the user's own channel; a client's brand goes to `clients/<client>/preferences.md`, `ea client new`)
 - Anything they hate seeing in edits (e.g. "no emoji in captions", "never cut mid-breath"). → `## Never`
 
 ## Mapping (answer → what to write)
