@@ -30,9 +30,25 @@ def camera_meta(path) -> dict:
     return out
 
 
+def make_proxy(src, px) -> None:
+    """540p H.264 proxy, written to a .part file first so an interrupted run never leaves a truncated
+    proxy that the next ingest would take as done."""
+    px.parent.mkdir(parents=True, exist_ok=True)
+    part = px.with_name(px.stem + ".part.mp4")
+    run(["ffmpeg", "-y", "-v", "error", "-i", str(src), "-vf", "scale=-2:540", "-c:v", "libx264",
+         "-preset", "veryfast", "-crf", "28", "-c:a", "aac", "-b:a", "96k", str(part)])
+    part.replace(px)
+
+
 def ingest(project: Project, proxies: bool = False) -> dict:
+    """Catalog first (written before any proxy, so transcription can start), then proxies in parallel:
+    decoding 4K 10-bit 4:2:2 is software-only and one ffmpeg uses ~4 cores."""
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+
     catalog = read_json(project.path("work", "media.json"), {})
     seen = set()
+    todo = []
     for f in project.input_files():
         rel = project.rel(f)
         sid = slug(f)
@@ -50,13 +66,26 @@ def ingest(project: Project, proxies: bool = False) -> dict:
             entry["analysis_audio"] = project.rel(wav)
         if proxies and info.get("has_video") and entry["kind"] == "video":
             px = project.path("work", "proxies", f"{sid}.mp4")
-            if not px.exists():
-                px.parent.mkdir(parents=True, exist_ok=True)
-                run(["ffmpeg", "-y", "-v", "error", "-i", str(f), "-vf", "scale=-2:540", "-c:v", "libx264",
-                     "-preset", "veryfast", "-crf", "28", "-c:a", "aac", "-b:a", "96k", str(px)])
-            entry["proxy"] = project.rel(px)
+            if px.exists():
+                entry["proxy"] = project.rel(px)
+            else:
+                todo.append((sid, f, px))
         catalog[sid] = {**catalog.get(sid, {}), **entry}
     write_json(project.path("work", "media.json"), catalog)
+    if todo:
+        def one(job):
+            sid, f, px = job
+            make_proxy(f, px)
+            return sid, px
+
+        workers = max(1, min(len(todo), (os.cpu_count() or 4) // 4))
+        with ThreadPoolExecutor(workers) as pool:
+            done = dict(pool.map(one, todo))
+        # other commands may have written media.json meanwhile: merge only the proxy field
+        catalog = read_json(project.path("work", "media.json"), {})
+        for sid, px in done.items():
+            catalog[sid]["proxy"] = project.rel(px)
+        write_json(project.path("work", "media.json"), catalog)
     return catalog
 
 

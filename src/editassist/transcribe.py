@@ -82,6 +82,10 @@ def transcribe(project: Project, model: str | None = None, language: str | None 
     model = model or os.environ.get("EA_WHISPER_MODEL", "large-v3-turbo")
     whisper = None
     done = []
+    from . import vocab
+
+    dictionary = vocab.load(project.dir.name)
+    hot = vocab.hotwords(project.dir.name)
     for sid, m in catalog.items():
         if only and sid not in only:
             continue
@@ -96,7 +100,7 @@ def transcribe(project: Project, model: str | None = None, language: str | None 
         audio = _load_wav(project.abs(m["analysis_audio"]))
         segments, info = whisper.transcribe(
             audio, language=language, word_timestamps=True,
-            vad_filter=True, condition_on_previous_text=False,
+            vad_filter=True, condition_on_previous_text=False, hotwords=hot,
         )
         segs = []
         for s in segments:
@@ -105,16 +109,21 @@ def transcribe(project: Project, model: str | None = None, language: str | None 
                 "words": [{"start": round(w.start, 3), "end": round(w.end, 3), "word": w.word.strip(),
                            "prob": round(w.probability, 3)} for w in (s.words or [])],
             })
+        fixed = vocab.fix_transcript({"segments": segs}, dictionary["fixes"])  # <memory>/vocabulary.md
         missed = uncovered_speech(audio, segs)
         if missed:
             print(f"  warning {sid}: speech-like audio with no words at {missed}; "
                   f"listen there or re-run with --force --model large-v3", flush=True)
         write_json(out, {"media": sid, "language": info.language, "model": model, "segments": segs,
-                         "possibly_missed": missed})
-        lines = [f"[{fmt_ts(s['start'])} - {fmt_ts(s['end'])}] {s['text']}" for s in segs]
-        out.with_suffix(".txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+                         "possibly_missed": missed, "vocab_fixes": fixed})
+        write_txt(out.with_suffix(".txt"), segs)
         done.append(sid)
     return done
+
+
+def write_txt(path, segs: list[dict]) -> None:
+    lines = [f"[{fmt_ts(s['start'])} - {fmt_ts(s['end'])}] {s['text']}" for s in segs]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def load_transcript(project: Project, sid: str) -> dict | None:

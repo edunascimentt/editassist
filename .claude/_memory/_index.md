@@ -15,6 +15,8 @@
 - [decisions.md](decisions.md) — append-only: engine design, timeline format, bundling, bake, Higgsfield, Resolve MCP, memory tiers
 
 - **BUILT (2026-10-01):** full pipeline + 28 skills + tests/CI. **2026-10-02:** Resolve MCP, memory-os, product-launch skill (`templates/launch/`, `ea launch`).
+- **2026-10-09:** timeline slots (`ea timeline save/load`): several videos per project, captions stamped per timeline; qa overlay-past-picture check; render trims loudness to target; Resolve timelines filed in bin `TIMELINES FINAIS`.
+- **2026-10-08:** transcription dictionary (`ea vocab`, <memory>/vocabulary.md), parallel/atomic proxies, Resolve native build frame-exact at 59.94->23.976 + sets timeline fps, qa/shake false positives fixed.
 - **2026-10-07:** dual-mic stereo: `ea level` picks the voice channel (`channel` clip field), bake/render play it centred.
 - **2026-10-06 (3):** after user feedback: `ea level`, `ea shake`, `export --template`, frame-exact native build, qa black-flash check, phrase captions + `--fix`.
 - **2026-10-06 (2):** client car reel: resolve_native speed conform at any rate, zoom, gain copies, LUTs from Resolve LUT folders; render flash-frame fix; symlink path normalisation.

@@ -26,6 +26,9 @@ description: Deliver the edit as an editable project in DaVinci Resolve, Premier
   handles; read the result line for what it couldn't set. Never switch the user's project without
   saying so, and never script LoadProject while "Untitled Project" is open (a modal save dialog
   blocks it): ask the user to open the project.
+- Every timeline built in Resolve lands in the root bin `TIMELINES FINAIS` (only the current version
+  of each video, nothing else); the versions it replaces (same name, older `vN`) move to
+  `editassist/versões antigas`. Never delete them: the user does.
 - `--template "<timeline>"`: build inside an emptied copy of a timeline the user already styled (their
   subtitle font/size/position are a track property no API can set). Use it whenever the project has a
   previous version or the client has a styled template; never leave the user restyling captions.

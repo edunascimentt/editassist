@@ -11,6 +11,7 @@ SRT captions are written next to the exports when they exist (import as a subtit
 from __future__ import annotations
 
 import json
+import re
 import os
 import platform
 import sys
@@ -29,6 +30,29 @@ def exact_fps(fps: float) -> float:
     if abs(fps - round(fps)) > 0.01 and abs(fps - n * 1000 / 1001) < 0.01:
         return n * 1000 / 1001
     return float(fps)
+
+
+def resolve_rate(fps: float) -> str:
+    """Resolve's frame-rate setting string: 23.976, 24, 29.97, 59.94 ..."""
+    f = exact_fps(fps)
+    return f"{f:.3f}".rstrip("0").rstrip(".") if abs(f - round(f)) > 0.01 else str(int(round(f)))
+
+
+def _filed(f: dict) -> str:
+    if not f.get("bin"):
+        return f"; {f.get('note')}"
+    old = f"; moved to editassist/versões antigas: {', '.join(f['replaced'])}" if f.get("replaced") else ""
+    return f"; in bin '{f['bin']}'{old}"
+
+
+def next_timeline_name(name: str, existing: set[str]) -> str:
+    """"x" -> "x v1" (or the next free version); a name already ending in a version ("x v1") keeps
+    its base and takes the next free number, never "x v1 v1"."""
+    m = re.match(r"^(.*?)\s+v(\d+)$", name)
+    base, n = (m.group(1), int(m.group(2))) if m else (name, 1)
+    while f"{base} v{n}" in existing:
+        n += 1
+    return f"{base} v{n}"
 
 
 def _fcpx_rates() -> None:
@@ -199,7 +223,7 @@ def ae_script(project: Project, tl: dict) -> str:
                 "mute": tr["kind"] == "video" and c["media"] in v_media,
                 "srcw": m.get("width"), "srch": m.get("height"),
             })
-    captions = (read_json(project.path("work", "captions.json"), {}) or {}).get("lines", [])
+    captions = (T.captions(project, tl) or {}).get("lines", [])
     caps = [{"t": " ".join(w["word"] for w in l["words"]), "a": l["start"], "b": l["end"]} for l in captions]
     data = {"name": tl["name"], "W": W, "H": H, "fps": fps, "total": total, "layers": layers, "captions": caps}
     return AE_TEMPLATE.replace("__DATA__", json.dumps(data, ensure_ascii=False))
@@ -337,29 +361,27 @@ def resolve_import(project: Project, tl: dict, otio_path: Path, into_current: bo
         if not rp:
             return "failed: no project open in Resolve"
         if abs(float(rp.GetSetting("timelineFrameRate") or 0) - tl["fps"]) > 0.01 and not rp.GetTimelineCount():
-            rp.SetSetting("timelineFrameRate", str(tl["fps"]))
+            rp.SetSetting("timelineFrameRate", resolve_rate(tl["fps"]))
     else:
         rp = pm.LoadProject(tl["name"]) or pm.CreateProject(tl["name"])
         if not rp:
             return "failed: could not create or open the Resolve project"
         if not rp.GetTimelineCount():
-            rp.SetSetting("timelineFrameRate", str(tl["fps"]))
+            rp.SetSetting("timelineFrameRate", resolve_rate(tl["fps"]))
             rp.SetSetting("timelineResolutionWidth", str(tl["width"]))
             rp.SetSetting("timelineResolutionHeight", str(tl["height"]))
     mp = rp.GetMediaPool()
     existing = {rp.GetTimelineByIndex(i + 1).GetName() for i in range(rp.GetTimelineCount())}
-    n = rp.GetTimelineCount() + 1
-    while f"{tl['name']} v{n}" in existing:
-        n += 1
-    name = f"{tl['name']} v{n}"
+    name = next_timeline_name(tl["name"], existing)
     srt = otio_path.with_suffix(".srt")
     # a template (the user's styled timeline) can only be honoured by the native build
     timeline = None if template else mp.ImportTimelineFromFile(str(otio_path), {"timelineName": name,
                                                                                 "importSourceClips": True})
     if not timeline:  # seen on Studio 21.0.0 for every OTIO/XML: build it clip by clip instead
-        from .resolve_native import build
+        from .resolve_native import build, file_timeline
 
         rep = build(project, tl, rp, name, srt=srt, template=template)
+        filed = file_timeline(rp, rp.GetCurrentTimeline())
         pm.SaveProject()
         notes = ("; " + "; ".join(rep["notes"])) if rep["notes"] else ""
         failed = f", {len(rep['failed'])} clips FAILED: {rep['failed']}" if rep["failed"] else ""
@@ -367,8 +389,11 @@ def resolve_import(project: Project, tl: dict, otio_path: Path, into_current: bo
         return (f"ok (built natively, {how}): project '{rp.GetName()}', timeline '{name}', "
                 f"{rep['placed']} clips, LUT on {rep['luts']}, {rep['speed_conformed']} speed copies conformed, {rep['zooms']} zooms, "
                 f"{rep.get('stabilized', 0)} stabilized, {rep.get('gain_baked', 0)} audio clips at their level"
-                f"{', subtitles placed' if rep.get('subtitles') else ''}{failed}{notes}")
+                f"{', subtitles placed' if rep.get('subtitles') else ''}{failed}{notes}{_filed(filed)}")
     rp.SetCurrentTimeline(timeline)
+    from .resolve_native import file_timeline
+
+    filed = file_timeline(rp, timeline)
     # colour: apply each media's LUT (work/color.json) on node 1 of every clip from that media
     from .videofx import media_grade
 
@@ -391,4 +416,4 @@ def resolve_import(project: Project, tl: dict, otio_path: Path, into_current: bo
     pm.SaveProject()
     return (f"ok: project '{rp.GetName()}', timeline '{name}'"
             + ((" (subtitles placed)" if placed else " (SRT in media pool)") if srt.exists() else "")
-            + (f", LUT applied to {applied} clips" if applied else ""))
+            + (f", LUT applied to {applied} clips" if applied else "") + _filed(filed))

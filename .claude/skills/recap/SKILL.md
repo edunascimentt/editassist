@@ -25,6 +25,22 @@ payoff line (best reaction) → end title on a brand shot until the music's natu
      the payoff, at -9 to -15 dB), fade out at the end. Music `duck: true`.
    A small Python builder in `work/build.py` that lays this out from a list is easier to revise than
    hand-edited json; keep it with the project.
+   In the builder, snap the beat grid to frames FIRST (`round(t*fps)/fps`) and pad lines with
+   `editassist.cut.resolve_segments` (never into a neighbouring word): off-grid cuts became 1-frame
+   holes in Resolve (2026-10-08). `ea qa` flags them.
 5. subtitles (`bold`, 3 words, accent = title colour), render preview, qa with `--render`, then LOOK at
    ~20 frames of the render (text overflow, titles over logos, captions over faces).
 6. NLE: export-nle (`--open --current` for the project already open in Resolve).
+
+## Content cuts from the same footage (music only)
+
+"Faz mais uns vídeos só de conteúdo": 3-4 short reels (30-45 s) with no speech, one theme each
+(the place, the people/hugs, the ceremony, behind the scenes), from the same visual index.
+- `ea timeline <p> save <slot>` the recap first; one slot per video; `load` before touching another.
+- A different track per video (`ea register --kind music`, `ea beats`); pick the in-point so the cut
+  ends on the track's audible end and the loud/soft sections match the theme's arc (loud outside,
+  soft outro inside / the emotional close). Cut on downbeats: 1 bar per shot, 2 bars for the title and
+  in the soft part.
+- Title in the user's style over the first shot; no captions. A builder (`work/build_content.py`) with
+  a spec per video. Check a frame from the middle of every shot (two shots of the same angle in a row
+  read as a jump cut); render, qa, export each slot to the NLE as its own timeline.

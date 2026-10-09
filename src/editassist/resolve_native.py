@@ -17,10 +17,14 @@ What 21.0's API can't do, and how it is handled:
 """
 from __future__ import annotations
 
+import re
+
+import math
+
 from pathlib import Path
 
 from . import timeline as T
-from .export import exact_fps
+from .export import exact_fps, resolve_rate
 from .project import Project, read_json
 
 
@@ -114,6 +118,41 @@ def _pool_by_path(folder, out=None, top_only: bool = False) -> dict:
     return out
 
 
+FINALS_BIN = "TIMELINES FINAIS"  # at the pool root: only the current version of each delivered video
+OLD_BIN = "versões antigas"  # inside the editassist bin: versions a newer build replaced
+
+
+def version_base(name: str) -> str:
+    """"x v3" -> "x"; "x v1 v1" (an old naming bug) -> "x"."""
+    while (m := re.match(r"^(.*?)\s+v\d+$", name)):
+        name = m.group(1)
+    return name
+
+
+def file_timeline(rp, timeline) -> dict:
+    """Put `timeline` in the finals bin and move the versions it replaces (same name, other version
+    number) out of it and out of the editassist bin into editassist/versões antigas. The user wants
+    finished timelines in a bin of their own, nothing else in it (2026-10-09)."""
+    mp = rp.GetMediaPool()
+    root, was = mp.GetRootFolder(), mp.GetCurrentFolder()
+    finals = _folder(mp, root, FINALS_BIN)
+    ours = _folder(mp, root, "editassist")
+    item = timeline.GetMediaPoolItem()
+    if not item:
+        return {"bin": None, "note": "Resolve gave no media pool item for the timeline: not filed"}
+    me, base = item.GetUniqueId(), version_base(timeline.GetName())
+    old = [c for f in (finals, ours) for c in (f.GetClipList() or [])
+           if c.GetClipProperty("Type") == "Timeline" and c.GetUniqueId() != me and version_base(c.GetName()) == base]
+    if old:
+        mp.MoveClips(old, _folder(mp, ours, OLD_BIN))
+    ok = mp.MoveClips([item], finals)
+    if was:
+        mp.SetCurrentFolder(was)  # creating a bin selects it in the user's Media Pool
+    if not ok:
+        return {"bin": None, "note": f"Resolve refused to move the timeline into {FINALS_BIN}"}
+    return {"bin": FINALS_BIN, "replaced": [c.GetName() for c in old]}
+
+
 def _from_template(rp, template: str, name: str):
     """Duplicate the user's timeline `template` as `name` and empty it. Track styles (the subtitle
     track's font/size/position, which no API can set) and track names/layout survive."""
@@ -196,13 +235,25 @@ def build(project: Project, tl: dict, rp, name: str, srt: Path | None = None, fo
         raise SystemExit("Resolve did not import: " + ", ".join(sorted(set(lost))))
 
     mp.SetCurrentFolder(root)
+    rate = resolve_rate(fps)
+    if str(rp.GetSetting("timelineFrameRate")) != rate and not template and rp.GetTimelineCount() == 0:
+        rp.SetSetting("timelineFrameRate", rate)  # only possible while the project has no timeline
     tlo = _from_template(rp, template, name) if template else mp.CreateEmptyTimeline(name)
     if not tlo:
         raise SystemExit(f"Resolve could not create timeline {name!r}")
     rp.SetCurrentTimeline(tlo)
     for k, v in (("useCustomSettings", "1"), ("timelineResolutionWidth", str(tl["width"])),
-                 ("timelineResolutionHeight", str(tl["height"]))):
+                 ("timelineResolutionHeight", str(tl["height"])), ("timelineFrameRate", rate)):
         tlo.SetSetting(k, v)
+    got_rate = str(tlo.GetSetting("timelineFrameRate") or "")
+    try:
+        off = abs(float(got_rate) - float(rate)) > 0.001
+    except ValueError:  # Resolve answered nothing readable: don't block the build on it
+        off = False
+    if off:
+        raise SystemExit(f"Resolve timeline runs at {got_rate} fps, the edit at {rate}: every cut would drift. "
+                         f"Set the project frame rate to {rate} (only possible before its first timeline) "
+                         f"or build into a timeline template at {rate}.")
     start0 = tlo.GetStartFrame()
     vtracks = [t for t in tl["tracks"] if t["kind"] == "video"]
     atracks = [t for t in tl["tracks"] if t["kind"] == "audio"]
@@ -219,7 +270,12 @@ def build(project: Project, tl: dict, rp, name: str, srt: Path | None = None, fo
     gains, fades = [], 0
     for kind, tracks in (("video", vtracks), ("audio", atracks)):
         for ti, t in enumerate(tracks, 1):
-            for c in t["clips"]:
+            clips = sorted(t["clips"], key=lambda c: c["start"])
+            # a clip that ends less than a frame from the next one butts it: rounding the two edges
+            # separately left 1-frame holes (sub-frame cut times from a builder, 2026-10-08)
+            butt = {id(a): round(b["start"] * fps) for a, b in zip(clips, clips[1:])
+                    if abs(b["start"] - T.end(a)) < 1.0 / fps}
+            for c in clips:
                 p = _key(project.abs(c["media"]))
                 m = catalog.get(c["media"]) or {}
                 sp = c.get("speed", 1.0) if kind == "video" else 1.0
@@ -229,11 +285,13 @@ def build(project: Project, tl: dict, rp, name: str, srt: Path | None = None, fo
                 src_fps = exact_fps(src_fps or fps)
                 # record frames from absolute times, the source span derived from the record length:
                 # rounding both ends separately left 1-frame holes between clips (seen live, 21.0)
-                rec, rec_end = round(c["start"] * fps), round(T.end(c) * fps)
+                rec, rec_end = round(c["start"] * fps), butt.get(id(c), round(T.end(c) * fps))
                 play = exact_fps(conform_rate(m.get("fps") or 0, sp, fps)) if sp != 1.0 else src_fps
                 first = round(c["in"] * src_fps)
                 info = {"mediaPoolItem": item, "startFrame": first,
-                        "endFrame": first + round((rec_end - rec) * play / fps), "trackIndex": ti,
+                        # ceil: a span like 37 rec frames x 2.5 (59.94 in 23.976) = 92.5 rounded to 92
+                        # gave Resolve 36.8 frames, truncated to 36: a 1-frame hole (2026-10-08)
+                        "endFrame": first + math.ceil((rec_end - rec) * play / fps - 1e-6), "trackIndex": ti,
                         "recordFrame": start0 + rec, "mediaType": 1 if kind == "video" else 2}
                 res = mp.AppendToTimeline([info])
                 if not res:

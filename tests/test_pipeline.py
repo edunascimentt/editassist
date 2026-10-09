@@ -424,8 +424,18 @@ def _fake_resolve():
     """Just enough of Resolve's scripting API (media pool, bins, AppendToTimeline) for resolve_native."""
 
     class Item:
-        def __init__(self, path, fps):
-            self.props = {"File Path": str(path), "FPS": fps}
+        n = 0
+
+        def __init__(self, path, fps, kind="Video"):
+            self.props = {"File Path": str(path), "FPS": fps, "Type": kind}
+            Item.n += 1
+            self.uid = f"id{Item.n}"
+
+        def GetName(self):
+            return Path(self.props["File Path"]).name
+
+        def GetUniqueId(self):
+            return self.uid
 
         def GetClipProperty(self, k=None):
             return self.props.get(k)
@@ -461,15 +471,29 @@ def _fake_resolve():
             return False  # Resolve 21.0: no audio volume
 
     class Tl:
-        def __init__(self):
+        def __init__(self, rate="30", name="x"):
+            self.name, self.pool_item = name, Item(name, None, "Timeline")
             self.tracks = {"video": 1, "audio": 1, "subtitle": 0}
             self.items = []
+            self.settings = {"timelineFrameRate": rate}
 
         def SetSetting(self, k, v):
+            if k == "timelineFrameRate":
+                return False  # ~ strict case: the timeline keeps the rate it was created with
+            self.settings[k] = v
             return True
+
+        def GetSetting(self, k):
+            return self.settings.get(k)
 
         def GetStartFrame(self):
             return 86400
+
+        def GetName(self):
+            return self.name
+
+        def GetMediaPoolItem(self):
+            return self.pool_item
 
         def GetEndFrame(self):
             return max(i["recordFrame"] + (i["endFrame"] - i["startFrame"]) * 30 / i["_fps"] for i in self.items)
@@ -502,14 +526,28 @@ def _fake_resolve():
             self.cur = f
             return True
 
+        def GetCurrentFolder(self):
+            return self.cur
+
         def ImportMedia(self, paths):
             items = [Item(p, 30.0) for p in paths]
             self.cur.clips += items
             return items
 
         def CreateEmptyTimeline(self, name):
-            self.tl = Tl()
+            self.tl = Tl(self.rp.settings["timelineFrameRate"], name)
+            self.cur.clips.append(self.tl.pool_item)  # a new timeline lands in the current bin
+            self.rp.count += 1
             return self.tl
+
+        def MoveClips(self, items, folder):
+            def walk(f):
+                f.clips = [c for c in f.clips if c not in items]
+                for sub in f.subs:
+                    walk(sub)
+            walk(self.root)
+            folder.clips += items
+            return True
 
         def AppendToTimeline(self, infos):
             info = dict(infos[0]) if isinstance(infos[0], dict) else {"srt": True}
@@ -521,12 +559,31 @@ def _fake_resolve():
     class RP:
         def __init__(self):
             self.mp = MP()
+            self.mp.rp = self
+            self.settings = {"timelineFrameRate": "30"}
+            self.count = 0
+
+        def GetSetting(self, k):
+            return self.settings.get(k)
+
+        def SetSetting(self, k, v):
+            if k == "timelineFrameRate" and self.count:
+                return False  # locked once the project has a timeline
+            self.settings[k] = v
+            return True
+
+        def GetTimelineCount(self):
+            return self.count
 
         def GetMediaPool(self):
             return self.mp
 
         def SetCurrentTimeline(self, t):
+            self.current = t
             return True
+
+        def GetCurrentTimeline(self):
+            return self.current
 
     return RP()
 
@@ -672,6 +729,20 @@ def test_resolve_native_clips_butt_without_frame_holes(project):
     vids = [i for i in rp.mp.tl.items if i["mediaType"] == 1]
     for a, b in zip(vids, vids[1:]):
         assert a["endFrame"] - a["startFrame"] == b["recordFrame"] - a["recordFrame"]
+    # cut times a fraction of a frame apart (a builder snapped starts but not ends): still butt
+    # (3 one-frame holes in the inauguração timeline, 2026-10-08)
+    tl = T.from_segments(project, [{"media": "input/cam60.mp4", "in": 0.0, "out": 3.0}] * 3)
+    tl["fps"] = 24000 / 1001
+    v = T.track(tl, "V1")["clips"]
+    v[0]["out"], v[1]["start"] = 3.0 - 0.02, 3.0 + 0.0    # ends 0.5 frame before the next start
+    v[1]["out"], v[2]["start"] = 3.07, 6.05               # 73 frames: 182.5 source frames of 59.94
+    rp = _fake_resolve()
+    resolve_native.build(project, tl, rp, "holes v2")
+    vids = [i for i in rp.mp.tl.items if i["mediaType"] == 1]
+    for a, b in zip(vids, vids[1:]):
+        # Resolve truncates a source span that isn't a whole number of timeline frames
+        placed = int((a["endFrame"] - a["startFrame"]) * (24000 / 1001) / (60000 / 1001) + 1e-9)
+        assert placed == b["recordFrame"] - a["recordFrame"], (a, b)
 
 
 def test_level_sets_gains_from_measured_loudness(project):
@@ -723,6 +794,16 @@ def test_shake_marks_only_handheld_clips(project):
     fc = project.path("work", "render_filter.txt")
     build_cmd(project, T.load(project), project.path("output", "x.mp4"))
     assert fc.read_text().count("deshake") == 1
+    # rendered titles/lower thirds (work/motion) animate: they were all marked shaky (2026-10-08)
+    mo = project.path("work", "motion", "Title_1.mov")
+    mo.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(project.path("input", "shaky.mp4"), mo)
+    tl = T.load(project)
+    tl["tracks"].append({"kind": "video", "name": "V2", "clips": [
+        {"media": "work/motion/Title_1.mov", "in": 0, "out": 3, "start": 0, "stabilize": True}]})
+    T.save(project, tl)
+    mark(project)
+    assert "stabilize" not in T.track(T.load(project), "V2")["clips"][0]
 
 
 def test_resolve_native_builds_inside_template_timeline(project):
@@ -800,3 +881,225 @@ def test_level_uses_the_voice_side_of_a_dual_mic_recording(project):
     import numpy as np
     x = np.frombuffer(raw, np.float32).reshape(-1, 2)
     assert np.allclose(x[:, 0], x[:, 1])  # the voice on both sides, no car noise in one ear
+
+
+def test_ingest_proxies_never_reuse_a_truncated_file(project, monkeypatch):
+    """An interrupted ingest left a half-written proxy that the next run took as done (72 GB of 4K
+    S-Log3, 2026-10-08). Proxies now go to a .part file and are renamed when complete; the catalog
+    is written before any proxy so transcription can start."""
+    from editassist import ingest as I
+
+    calls = []
+
+    def boom(src, px):
+        calls.append(px)
+        part = px.with_name(px.stem + ".part.mp4")
+        part.parent.mkdir(parents=True, exist_ok=True)
+        part.write_bytes(b"half")
+        assert I.read_json(project.path("work", "media.json"))  # catalog already on disk
+        raise SystemExit("killed")
+
+    monkeypatch.setattr(I, "make_proxy", boom)
+    with pytest.raises(SystemExit):
+        I.ingest(project, proxies=True)
+    assert calls and not any(p.exists() for p in calls)
+    monkeypatch.undo()
+    cat = I.ingest(project, proxies=True)
+    px = project.dir / cat["cam_a"]["proxy"]
+    assert px.exists() and px.stat().st_size > 1000
+
+
+def test_vocabulary_dictionary_fixes_transcripts_and_captions(project, tmp_path, monkeypatch):
+    """The user asked for one dictionary of words Whisper gets wrong, applied to every transcript from
+    then on (2026-10-08, "Camoriú" for Camboriú). Scoped fixes only apply to matching projects."""
+    from editassist import vocab
+    from editassist.transcribe import load_transcript
+
+    monkeypatch.setenv("EA_MEMORY_DIR", str(tmp_path / "mem"))
+    vocab.add(["olá=Oi", "material bruto=footage"], ["Balneário Camboriú"], note="test")
+    vocab.add(["hoje=amanhã"], scope="otherclient")
+    assert vocab.load(project.dir.name)["fixes"] == ["olá=Oi", "material bruto=footage"]
+    assert "Balneário Camboriú" in vocab.hotwords(project.dir.name)
+    vocab.add(["olá=Olá!"])  # same heard word replaces, never stacks
+    assert [f for f in vocab.load()["fixes"] if f.startswith("olá=")] == ["olá=Olá!"]
+    res = vocab.apply_project(project)
+    assert res["changed"]["cam_a"] == 2
+    words = [w["word"] for s in load_transcript(project, "cam_a")["segments"] for w in s["words"]]
+    assert "Olá!" in words and "footage." in words and "Hoje" in words
+    assert "footage." in project.path("work", "transcripts", "cam_a.txt").read_text(encoding="utf-8")
+    assert vocab.apply_project(project)["changed"] == {}  # idempotent
+
+
+def test_captions_never_break_inside_a_dictionary_term():
+    """"do Conselho | Tutelar." split a name over two caption lines (2026-10-08)."""
+    from editassist.vocab import keep_terms
+
+    ws = [{"word": w, "start": i, "end": i + 0.5} for i, w in enumerate("a comunidade do Conselho Tutelar.".split())]
+    out = keep_terms(ws, ["Conselho Tutelar", "Balneário Camboriú", "CRAS"])
+    assert [w["word"] for w in out] == ["a", "comunidade", "do", "Conselho Tutelar."]
+    assert out[-1]["start"] == 3 and out[-1]["end"] == 4.5
+
+
+def test_qa_accepts_intended_fades_and_preview_loudness(project):
+    """A fade in from black at 0 s was reported as a "black flash at the cut", and a 540p preview
+    (mixed to -16 LUFS) was judged against the -14 delivery target (2026-10-08)."""
+    from editassist.qa import check
+    from editassist.render import render
+
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.4, "out": 4.9},
+                                   {"media": "input/cam_a.mp4", "in": 7.4, "out": 9.5}], with_video=True)
+    v = T.track(tl, "V1")["clips"]
+    v[0]["transition_in"] = {"type": "fade", "dur": 0.5}
+    v[-1]["transition_out"] = {"type": "fade", "dur": 0.8}
+    T.save(project, tl)
+    render(project, preset="preview", out="output/p.mp4")
+    rep = check(project, "output/p.mp4")
+    assert not [i for i in rep["issues"] if "black flash" in i["issue"]], rep["issues"]
+    assert not [i for i in rep["issues"] if "target for youtube" in i["issue"]], rep["issues"]
+
+
+def test_resolve_native_sets_the_timeline_frame_rate(project):
+    """The open project ran at 24 fps and the edit at 23.976: the native build never set a frame rate,
+    so every frame position would drift (2026-10-08). An empty project is switched; a project whose
+    rate is locked by an existing timeline is refused with an explanation."""
+    from editassist import resolve_native
+
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.5, "out": 1.5}])
+    tl["fps"] = 24000 / 1001
+    rp = _fake_resolve()
+    rp.settings["timelineFrameRate"] = "24"
+    resolve_native.build(project, tl, rp, "x v1")
+    assert rp.mp.tl.GetSetting("timelineFrameRate") == "23.976"
+    rp.settings["timelineFrameRate"] = "24"  # now locked: the project has a timeline
+    with pytest.raises(SystemExit, match="drift"):
+        resolve_native.build(project, tl, rp, "x v2")
+
+
+def test_qa_flags_sub_frame_cuts(project):
+    from editassist.qa import check
+
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.0, "out": 2.0},
+                                   {"media": "input/cam_a.mp4", "in": 3.0, "out": 4.0}], with_video=True)
+    T.track(tl, "V1")["clips"][1]["start"] += 0.025  # 0.75 frame at 30 fps: rounds to a 1-frame hole
+    T.save(project, tl)
+    assert any("off by" in i["issue"] for i in check(project)["issues"])
+
+
+def test_next_timeline_name_never_doubles_the_version():
+    from editassist.export import next_timeline_name
+
+    assert next_timeline_name("Inauguração v1", set()) == "Inauguração v1"  # was "Inauguração v1 v1"
+    assert next_timeline_name("Inauguração v1", {"Inauguração v1"}) == "Inauguração v2"
+    assert next_timeline_name("reel", {"reel v1", "reel v2"}) == "reel v3"
+
+
+def test_qa_flags_picture_out_of_sync_with_its_own_sound(project):
+    """Two sound pieces from one take (a pause cut out) under ONE continuous picture clip: the lips
+    were 2.3 s behind the voice (2026-10-08)."""
+    from editassist.qa import check
+
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.4, "out": 1.6},
+                                   {"media": "input/cam_a.mp4", "in": 2.9, "out": 4.9}], with_video=True)
+    v = T.track(tl, "V1")["clips"]
+    v[0]["out"] = v[0]["in"] + T.length(tl)  # picture keeps running through the jump
+    del v[1:]
+    T.save(project, tl)
+    assert any("out of sync" in i["issue"] for i in check(project)["issues"])
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.4, "out": 1.6},
+                                   {"media": "input/cam_a.mp4", "in": 2.9, "out": 4.9}], with_video=True)
+    T.save(project, tl)
+    assert not any("out of sync" in i["issue"] for i in check(project)["issues"])
+
+
+def test_cut_follows_the_voice_when_whisper_squeezes_the_last_word(project):
+    """Whisper gave "habitantes" 0.16 s and put the next speaker's word right after it: padding clamped
+    to that word and cut the prefeita mid-word (2026-10-08). The out point now follows the audio."""
+    from editassist.cut import resolve_segments
+
+    f = project.path("work", "transcripts", "cam_a.json")
+    t = json.loads(f.read_text(encoding="utf-8"))
+    w = t["segments"][0]["words"]  # Olá 0.5-0.9, pessoal. 0.95-1.5 (tone until 1.5)
+    w[1]["end"] = 1.0  # squeezed: 7 letters in 0.05 s
+    t["segments"][1]["words"][0].update(start=1.02, end=1.1)  # "Hoje" glued to it
+    f.write_text(json.dumps(t), encoding="utf-8")
+    seg = resolve_segments(project, [{"media": "cam_a", "in": 0.5, "out": 1.0}])[0]
+    assert 1.5 <= seg["out"] <= 1.7, seg
+
+
+def test_timeline_slots_keep_each_videos_captions(project):
+    """Several videos in one project: a builder rewrote timeline.json while work/captions.json still held
+    the recap's captions; they leaked into the new video's slot, its qa and its NLE export."""
+    from editassist.cut import speech_segments
+    from editassist.subtitles import build as subs
+
+    tl = T.from_segments(project, speech_segments(project, "cam_a"))
+    tl["name"] = "recap"
+    T.save(project, tl)
+    subs(project)
+    assert T.save_slot(project, "recap")["captions"]
+    content = T.new(project)
+    content["name"] = "content"
+    content["tracks"][0]["clips"] = [{"media": "input/cam_b.mp4", "in": 0, "out": 2, "start": 0}]
+    T.save(project, content)  # what a builder script does; captions.json is still the recap's
+    assert T.captions(project, content) is None
+    assert not T.save_slot(project, "content")["captions"]
+    assert T.load_slot(project, "recap")["captions"]
+    assert T.captions(project, T.load(project))["timeline"] == "recap"
+    T.load_slot(project, "content")
+    assert not project.path("work", "captions.json").exists()
+    content["tracks"][0]["clips"][0]["out"] = 3
+    T.save(project, content)  # unsaved change: loading another slot must not drop it
+    with pytest.raises(SystemExit):
+        T.load_slot(project, "recap")
+    assert T.load_slot(project, "recap", force=True)["name"] == "recap"
+
+
+def test_qa_overlay_past_the_picture(project):
+    """An end title placed 0.3 s into the last shot with the shot's full length ran 0.1 s past the video."""
+    from editassist.qa import check
+
+    tl = T.new(project)
+    tl["tracks"][0]["clips"] = [{"media": "input/cam_a.mp4", "in": 0, "out": 4, "start": 0}]
+    tl["tracks"].insert(1, {"kind": "video", "name": "V2", "clips": [
+        {"media": "input/cam_b.mp4", "in": 0, "out": 2, "start": 2.1, "note": "end title"}]})
+    T.save(project, tl)
+    assert any("end title ends at 4.10s" in i["issue"] for i in check(project)["issues"])
+    tl["tracks"][1]["clips"][0]["out"] = 1.9
+    T.save(project, tl)
+    assert not any("after the last V1 picture" in i["issue"] for i in check(project)["issues"])
+
+
+def test_render_trims_loudness_to_target(tmp_path):
+    """Single-pass loudnorm left a music-only reel (loud montage, soft outro) at -15.7 for -14."""
+    from editassist.render import measure, trim_loudness
+
+    f = tmp_path / "quiet.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=160x90:r=24:d=4", "-f", "lavfi",
+                    "-i", "sine=f=440:d=4,volume=-30dB", "-c:v", "libx264", "-c:a", "aac", "-shortest", str(f)],
+                   check=True)
+    before = measure(f)[0]
+    gain = trim_loudness(f, -16, -1.0)
+    lufs, tp = measure(f)
+    assert gain > 5 and lufs > before + 5
+    assert lufs == pytest.approx(-16, abs=0.6) and tp <= -1.0 + 0.2
+
+
+def test_resolve_finished_timelines_get_their_own_bin(project):
+    """Finished timelines go to a bin with nothing else in it; a new version moves the one it replaces
+    (and the "v1 v1" of an old naming bug) to editassist/versões antigas."""
+    from editassist import resolve_native as R
+
+    assert R.version_base("Conteúdo 1 - A nova sede v12") == "Conteúdo 1 - A nova sede"
+    assert R.version_base("Inauguração v1 v1") == "Inauguração"
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.5, "out": 1.5}])
+    rp = _fake_resolve()
+    names = []
+    for name in ("Inauguração v1 v1", "Inauguração v2", "Outro v1"):
+        R.build(project, tl, rp, name)
+        names.append(R.file_timeline(rp, rp.GetCurrentTimeline()))
+    assert names[1]["replaced"] == ["Inauguração v1 v1"] and names[2]["replaced"] == []
+    bins = {f.GetName(): f for f in rp.mp.root.GetSubFolderList()}
+    assert sorted(c.GetName() for c in bins[R.FINALS_BIN].GetClipList()) == ["Inauguração v2", "Outro v1"]
+    old = {f.GetName(): f for f in bins["editassist"].GetSubFolderList()}[R.OLD_BIN]
+    assert [c.GetName() for c in old.GetClipList()] == ["Inauguração v1 v1"]
+    assert not any(c.GetClipProperty("Type") == "Timeline" for c in bins["editassist"].GetClipList())

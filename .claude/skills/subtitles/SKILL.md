@@ -31,5 +31,7 @@ description: Captions synced to the EDITED timeline. SRT for the NLE, styled ASS
   put it on V2 (see motion-graphics).
 - Speakers: after the speakers skill, caption lines never mix two people.
 - Other languages: translate-dub skill (`--lines` + `--name`).
-- Check spelling of names/brands against `<memory>/preferences.md` "Vocabulary"; fix in
-  `work/transcripts/<id>.json` and re-run.
+- Captions apply the user's dictionary (`<memory>/vocabulary.md`) automatically. Read every caption
+  line; a misheard word you find = `uv run ea vocab <p> --add "heard=right" --apply`, then re-run
+  subtitles (the dictionary grows, so the next project gets it right too). `--fix` is only for one-off
+  changes that should NOT be remembered.

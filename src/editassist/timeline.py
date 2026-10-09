@@ -52,6 +52,70 @@ def save(project: Project, tl: dict) -> None:
     write_json(project.path("timeline.json"), tl)
 
 
+# --- slots: several videos from one project (a recap plus content cuts). timeline.json stays the
+# working copy every command reads; a slot is a saved copy in timelines/<slot>.json, its captions in
+# timelines/<slot>.captions.json. Loading another slot refuses to drop unsaved work.
+
+CAPTIONS = ("work", "captions.json")
+
+
+def captions(project: Project, tl: dict) -> dict | None:
+    """work/captions.json when it was made for this timeline (unstamped captions predate slots: kept)."""
+    caps = read_json(project.path(*CAPTIONS))
+    if caps is None or caps.get("timeline", tl["name"]) != tl["name"]:
+        return None
+    return caps
+
+
+def _slot_files(project: Project, slot: str):
+    d = project.path("timelines")
+    return d / f"{slot}.json", d / f"{slot}.captions.json"
+
+
+def slots(project: Project) -> list[str]:
+    d = project.path("timelines")
+    return sorted(f.stem for f in d.glob("*.json") if not f.name.endswith(".captions.json")) if d.is_dir() else []
+
+
+def _saved_in(project: Project) -> str | None:
+    """The slot holding exactly the working timeline + captions, None when they are saved nowhere."""
+    tl = read_json(project.path("timeline.json"))
+    caps = captions(project, tl) if tl else None
+    for s in slots(project):
+        f, c = _slot_files(project, s)
+        if read_json(f) == tl and read_json(c) == caps:
+            return s
+    return None
+
+
+def save_slot(project: Project, slot: str) -> dict:
+    tl = load(project)
+    f, c = _slot_files(project, slot)
+    write_json(f, tl)
+    caps = captions(project, tl)  # another video's captions (a builder rewrote timeline.json) stay out
+    if caps is not None:
+        write_json(c, caps)
+    elif c.exists():
+        c.unlink()
+    return {"saved": slot, "name": tl["name"], "captions": caps is not None}
+
+
+def load_slot(project: Project, slot: str, force: bool = False) -> dict:
+    f, c = _slot_files(project, slot)
+    if not f.exists():
+        raise SystemExit(f"no slot {slot!r}; slots: {slots(project)}")
+    if project.path("timeline.json").exists() and not force and _saved_in(project) is None:
+        raise SystemExit("timeline.json (or work/captions.json) has changes saved in no slot: "
+                         "`ea timeline <p> save <slot>` first, or --force to drop them")
+    write_json(project.path("timeline.json"), read_json(f))
+    caps = project.path(*CAPTIONS)
+    if c.exists():
+        write_json(caps, read_json(c))
+    elif caps.exists():
+        caps.unlink()  # this video has no captions: don't let another slot's leak into qa / export
+    return {"loaded": slot, "name": read_json(f)["name"], "captions": c.exists()}
+
+
 def new(project: Project) -> dict:
     s = project.settings
     return {"name": project.name, "fps": s["fps"], "width": s["width"], "height": s["height"],

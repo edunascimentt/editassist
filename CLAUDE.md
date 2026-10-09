@@ -30,7 +30,8 @@ user prompt + media ──► you (Claude Code / Codex) ──► skills (recipe
    a short summary of decisions (what you cut and why). Ask for feedback; apply it with the review
    skill.
 5. **Learn**: when the user corrects you or states a preference, write it to `<memory>` (see
-   style-profile skill). Don't wait for the end of the task.
+   style-profile skill). Don't wait for the end of the task. Every misheard word (yours or the user's
+   find) goes into the transcription dictionary at once: `uv run ea vocab <p> --add "heard=right" --apply`.
 6. **Improve the tools** (the user wants this editor to improve itself): before you call a task done,
    review it for every place you worked around `ea` (a one-off script, a hand-edited output file, a
    command that failed or was slow, a check that missed something you later saw). For each one: fix
@@ -48,6 +49,8 @@ user prompt + media ──► you (Claude Code / Codex) ──► skills (recipe
 - `timeline.json` is the single source of truth for the edit. Edit it directly when no command
   fits (format documented at the top of `src/editassist/timeline.py`), then
   `uv run ea timeline <p> validate`.
+- Several videos from one project (a recap plus content cuts): one slot each, `uv run ea timeline <p> save <slot>`
+  after building, `load <slot>` before working on another (captions travel with their slot).
 - Read transcripts from `work/transcripts/<id>.txt` (source time) and `ea transcript` (edited
   timeline time); use `ea find` for exact word times before cutting. Don't guess timestamps.
 - You can't hear audio: use `ea beats` for music timing, `ea qa` for loudness and cut checks,

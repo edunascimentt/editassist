@@ -40,6 +40,15 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project"); p.add_argument("--model"); p.add_argument("--language")
     p.add_argument("--only", nargs="*"); p.add_argument("--force", action="store_true")
 
+    p = sub.add_parser("vocab", help="the user's transcription dictionary (<memory>/vocabulary.md): "
+                                     "list, --add fixes/--term names, --apply to a project's transcripts")
+    p.add_argument("project", nargs="?", help="with --apply: fix this project's existing transcripts")
+    p.add_argument("--add", nargs="*", default=[], help='"heard=right" (multi-word ok)')
+    p.add_argument("--term", nargs="*", default=[], help="right spellings Whisper should know (names, brands)")
+    p.add_argument("--note", help="where it was seen (project, date is added)")
+    p.add_argument("--scope", help="only for projects whose name contains this (client-specific words)")
+    p.add_argument("--apply", action="store_true")
+
     p = sub.add_parser("scenes", help="shot detection + keyframes + contact sheets")
     p.add_argument("project"); p.add_argument("--threshold", type=float, default=0.3, help="scene score 0..1, lower = more cuts")
     p.add_argument("--only", nargs="*")
@@ -58,15 +67,18 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--tighten", action="store_true", help="also remove pauses inside each segment")
     p.add_argument("--min-silence", type=float, default=0.45)
 
-    p = sub.add_parser("timeline", help="show or validate timeline.json")
-    p.add_argument("project"); p.add_argument("action", choices=["info", "validate", "json", "ripple"], nargs="?", default="info")
+    p = sub.add_parser("timeline", help="show or validate timeline.json; save/load slots (several videos in one project)")
+    p.add_argument("project")
+    p.add_argument("action", choices=["info", "validate", "json", "ripple", "save", "load", "slots"], nargs="?", default="info")
+    p.add_argument("slot", nargs="?", help="save/load: slot name (timelines/<slot>.json, with its captions)")
+    p.add_argument("--force", action="store_true", help="load: drop unsaved changes in timeline.json")
 
     p = sub.add_parser("subtitles", help="captions on the edited timeline (.srt + styled .ass)")
     p.add_argument("project"); p.add_argument("--style", default="clean", choices=["clean", "bold", "boxed"])
     p.add_argument("--max-words", type=int, default=4); p.add_argument("--no-karaoke", action="store_true")
     p.add_argument("--lines", help="timed text json [{start,end,text}] (e.g. a translation) instead of the transcript")
     p.add_argument("--name", help="output base name, e.g. <project>_en")
-    p.add_argument("--fix", action="append", default=[], help='vocabulary fix "heard=right", repeatable')
+    p.add_argument("--fix", action="extend", nargs="+", default=[], help='vocabulary fix "heard=right", repeatable')
     p.add_argument("--font", help="caption font file for burn-in (saved in work/caption_style.json)")
     p.add_argument("--weight", help="named instance of a variable font, e.g. SemiBold")
     p.add_argument("--size", type=float, help="caption size, %% of the frame's short side")
@@ -109,7 +121,8 @@ def main(argv: list[str] | None = None) -> None:
                                       "(keeps the user's subtitle style and track layout)")
 
     p = sub.add_parser("qa", help="automatic checks on timeline, captions and (optionally) a render")
-    p.add_argument("project"); p.add_argument("--render"); p.add_argument("--preset", default="youtube")
+    p.add_argument("project"); p.add_argument("--render")
+    p.add_argument("--preset", help="loudness target; default: preview for a 540p preview render, else the project platform")
 
     p = sub.add_parser("voiceover", help="ElevenLabs text to speech")
     p.add_argument("project"); p.add_argument("text"); p.add_argument("--voice")
@@ -269,6 +282,16 @@ def main(argv: list[str] | None = None) -> None:
         cat = ingest(Project(a.project), proxies=a.proxies)
         out({k: {x: v[x] for x in ("path", "kind", "duration", "width", "height", "fps", "has_audio") if x in v}
              for k, v in cat.items()})
+    elif a.cmd == "vocab":
+        from . import vocab
+
+        res = vocab.add(a.add, a.term, a.note, a.scope) if (a.add or a.term) else {"file": str(vocab.path())}
+        if a.apply:
+            if not a.project:
+                raise SystemExit("--apply needs a project")
+            res["applied"] = vocab.apply_project(Project(a.project))
+        res["dictionary"] = vocab.load(a.project)
+        out(res)
     elif a.cmd == "transcribe":
         from .transcribe import transcribe
         pr = Project(a.project)
@@ -306,6 +329,14 @@ def main(argv: list[str] | None = None) -> None:
     elif a.cmd == "timeline":
         from . import timeline as T
         pr = Project(a.project)
+        if a.action in ("save", "load"):
+            if not a.slot:
+                raise SystemExit(f"ea timeline <p> {a.action} <slot>")
+            out(T.save_slot(pr, a.slot) if a.action == "save" else T.load_slot(pr, a.slot, a.force))
+            return
+        if a.action == "slots":
+            out({"slots": T.slots(pr), "current": T._saved_in(pr)})
+            return
         tl = T.load(pr)
         if a.action == "validate":
             fixed = T.normalize_media(pr, tl)

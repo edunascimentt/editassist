@@ -148,6 +148,11 @@ def apply_fixes(ws: list[dict], fixes: list[str]) -> list[dict]:
             if [norm(x["word"]) for x in out[i:i + len(old)]] == [norm(x) for x in old]:
                 span = out[i:i + len(old)]
                 tail = re.sub(r"^.*?([.,!?;:]*)$", r"\1", span[-1]["word"])
+                if new and re.search(r"[.,!?;:]$", new[-1]):
+                    tail = ""  # the right side brings its own punctuation
+                if " ".join(x["word"] for x in span) == " ".join(new) + tail:
+                    i += len(span)  # already right (case-only fixes, re-applied dictionaries)
+                    continue
                 a, b = span[0]["start"], span[-1]["end"]
                 # the right side stays ONE caption token, so "launch control" never splits over two lines
                 rep = [{**span[0], "word": " ".join(new) + tail, "start": a, "end": b}] if new else []
@@ -173,8 +178,12 @@ def drop_strays(ws: list[dict], gap: float = 2.0) -> list[dict]:
 
 def build(project: Project, style: str = "clean", max_words: int = 4, karaoke: bool = True,
           out_name: str | None = None, fixes: list[str] | None = None) -> dict:
+    from . import vocab
+
     tl = T.load(project)
-    ws = drop_strays(apply_fixes(timeline_words(project, tl), fixes))
+    known = vocab.load(project.dir.name)  # the user's dictionary, then this call's fixes
+    ws = drop_strays(apply_fixes(vocab.fix_words(timeline_words(project, tl), known["fixes"])[0], fixes))
+    ws = vocab.keep_terms(ws, known["terms"])
     if not ws:
         raise SystemExit("no words on the timeline: transcribe first and make sure A1 has dialogue")
     lines = group(ws, max_words=max_words)
@@ -247,6 +256,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                           f"{' '.join(txt(w) for w in l['words'])}")
     ass_path = project.path("output", f"{name}.ass")
     ass_path.write_text(head + "\n".join(events) + "\n", encoding="utf-8")
-    write_json(project.path(*captions_file.split("/")), {"style": style, "karaoke": karaoke, "lines": lines})
+    # stamped with the timeline it was made for: a project can hold several videos (timeline slots)
+    write_json(project.path(*captions_file.split("/")),
+               {"timeline": tl["name"], "style": style, "karaoke": karaoke, "lines": lines})
     return {"srt": project.rel(srt_path), "ass": project.rel(ass_path), "lines": len(lines),
             "words": sum(len(l["words"]) for l in lines)}

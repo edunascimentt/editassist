@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import time
+from pathlib import Path
 
 from . import timeline as T
 from .generate import register_file
@@ -27,10 +28,19 @@ def render_motion(project: Project, composition: str, props: dict, seconds: floa
             raise SystemExit("no work/captions.json: run `ea subtitles <project>` first")
         props["lines"] = caps["lines"]
         props.setdefault("durationInSeconds", T.length(tl))
+    if props.get("font"):  # a font the user owns: copied next to the bundled ones, never committed
+        src = Path(props.pop("font")).expanduser()
+        if not src.is_file():
+            raise SystemExit(f"font file not found: {src}")
+        dst_font = ROOT / "assets" / "user-fonts" / src.name
+        dst_font.parent.mkdir(parents=True, exist_ok=True)
+        if not dst_font.exists():
+            shutil.copy2(src, dst_font)
+        props["fontFile"] = f"user-fonts/{src.name}"
     if seconds:
         props["durationInSeconds"] = seconds
     props.setdefault("durationInSeconds", 5)
-    stamp = int(time.time())
+    stamp = int(time.time() * 1000)  # two renders in one second overwrote each other
     props_file = project.path("work", "motion", f"{composition}_{stamp}.props.json")
     write_json(props_file, props)
     dst = project.path("work", "motion", f"{composition}_{stamp}.mov")

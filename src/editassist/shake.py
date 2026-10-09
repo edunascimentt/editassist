@@ -61,6 +61,9 @@ def mark(project: Project, threshold: float = THRESHOLD, dry_run: bool = False) 
                 continue
             if project.abs(c["media"]).suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
                 continue
+            if c["media"].startswith("work/motion/"):  # rendered titles/lower thirds: animation, not shake
+                c.pop("stabilize", None)
+                continue
             j = jitter(project, c["media"], c["in"], c["out"])
             if j is None:
                 continue

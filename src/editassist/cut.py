@@ -111,6 +111,47 @@ def _neighbours(ws: list[dict], a: float, b: float) -> tuple[float, float]:
 PAD_IN, PAD_OUT = 0.12, 0.30
 
 
+def audible_end(project: Project, sid: str, t: float, limit: float = 0.9) -> float:
+    """Where the voice really stops after `t`: first 0.12 s run below (local noise floor + 6 dB) in the
+    analysis audio, at most `limit` s later. Used when Whisper squeezed the last word."""
+    import wave
+
+    import numpy as np
+
+    m = media_by_id(project)[sid]
+    if not m.get("analysis_audio"):
+        return t
+    with wave.open(str(project.abs(m["analysis_audio"])), "rb") as w:
+        sr = w.getframerate()
+        w.setpos(max(0, int((t - 5) * sr)))
+        a = np.frombuffer(w.readframes(int(10 * sr)), dtype=np.int16).astype(np.float32) / 32768
+    hop = sr // 40  # 25 ms
+    n = len(a) // hop
+    if not n:
+        return t
+    db = 20 * np.log10(np.sqrt((a[: n * hop].reshape(n, hop) ** 2).mean(1)) + 1e-9)
+    thr = np.percentile(db, 10) + 6
+    t0 = max(0.0, t - 5)
+    i, quiet = int((t - t0) * 40), 0
+    while i < n and (i / 40 + t0) < t + limit:
+        quiet = quiet + 1 if db[i] < thr else 0
+        if quiet >= 5:
+            return round(t0 + (i - 4) / 40, 3)
+        i += 1
+    return round(min(t + limit, t0 + n / 40), 3)
+
+
+def squeezed(ws: list[dict], out: float) -> bool:
+    """Whisper squeezed the last word before `out`: it is far too short for its letters (habitantes in
+    0.16 s) and the next word follows without a pause, so neither boundary can be trusted."""
+    last = max((w for w in ws if w["end"] <= out + 1e-3), key=lambda w: w["end"], default=None)
+    nxt = min((w for w in ws if w["start"] >= out - 1e-3), key=lambda w: w["start"], default=None)
+    if not last or not nxt:
+        return False
+    letters = sum(ch.isalpha() for ch in last["word"])
+    return letters >= 4 and (last["end"] - last["start"]) < 0.035 * letters and nxt["start"] - last["end"] < 0.08
+
+
 def resolve_segments(project: Project, spec: list[dict]) -> list[dict]:
     """Segment specs written by the model. Each item is either
       {"media": "<id or path>", "in": 1.2, "out": 5.0}
@@ -139,9 +180,14 @@ def resolve_segments(project: Project, spec: list[dict]) -> list[dict]:
         # Whisper puts word ends early (final consonants, breath): a bite cut at the word end sounds
         # clipped. More room after than before; padding never reaches into the neighbouring words.
         pad_in, pad_out = s.get("pad_in", s.get("pad", PAD_IN)), s.get("pad_out", s.get("pad", PAD_OUT))
-        prev_end, next_start = _neighbours(words(project, sid), seg["in"], seg["out"])
+        ws = words(project, sid)
+        prev_end, next_start = _neighbours(ws, seg["in"], seg["out"])
         seg["in"] = max(0.0, prev_end + 0.02 if prev_end else 0.0, seg["in"] - pad_in)
-        seg["out"] = min(catalog[sid]["duration"] or seg["out"] + pad_out, next_start - 0.02, seg["out"] + pad_out)
+        if squeezed(ws, seg["out"]):  # the word goes on past Whisper's end: follow the voice itself
+            # (the prefeita's "habitantes" was cut at 0.16 s of a 0.6 s word, 2026-10-08)
+            seg["out"] = min(catalog[sid]["duration"] or 1e9, audible_end(project, sid, seg["out"]) + 0.08)
+        else:
+            seg["out"] = min(catalog[sid]["duration"] or seg["out"] + pad_out, next_start - 0.02, seg["out"] + pad_out)
         out.append(seg)
     return out
 

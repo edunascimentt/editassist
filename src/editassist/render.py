@@ -2,6 +2,7 @@
 when the user doesn't need an NLE project."""
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -138,4 +139,31 @@ def render(project: Project, preset: str = "preview", out: str | None = None, su
     res = subprocess.run(cmd, cwd=str(project.dir), capture_output=True, text=True)
     if res.returncode != 0:
         raise SystemExit("render failed:\n" + "\n".join(res.stderr.strip().splitlines()[-20:]))
+    trim_loudness(dst, *PRESETS[preset][:2])
     return dst
+
+
+def measure(path: Path) -> tuple[float, float] | None:
+    """(integrated LUFS, true peak dBTP) of a file's audio."""
+    res = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-vn", "-af", "ebur128=peak=true",
+                          "-f", "null", "-"], capture_output=True, text=True)
+    i = re.findall(r"I:\s+(-?[\d.]+) LUFS", res.stderr)
+    tp = re.findall(r"Peak:\s+(-?[\d.]+) dBFS", res.stderr)
+    return (float(i[-1]), float(tp[-1])) if i and tp else None
+
+
+def trim_loudness(dst: Path, lufs: float, tp: float, tol: float = 0.5) -> float:
+    """Single-pass loudnorm misses the target on music with a wide range (a loud montage then a soft
+    outro rendered at -15.7 for a -14 target): measure the file and fix the gain in a remux (video
+    copied), never pushing the true peak over `tp`. Returns the gain applied."""
+    m = measure(dst)
+    if not m or abs(m[0] - lufs) <= tol:
+        return 0.0
+    gain = min(lufs - m[0], tp - 0.1 - m[1])
+    if abs(gain) < 0.1:
+        return 0.0
+    tmp = dst.with_suffix(".gain" + dst.suffix)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(dst), "-map", "0", "-c:v", "copy", "-af",
+                    f"volume={gain:.2f}dB", "-c:a", "aac", "-b:a", "192k", str(tmp)], check=True)
+    tmp.replace(dst)
+    return round(gain, 2)

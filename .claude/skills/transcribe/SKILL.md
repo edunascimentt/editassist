@@ -12,6 +12,10 @@ description: Word-level transcription of every clip with audio (faster-whisper).
 - Outputs `work/transcripts/<id>.json` (word times) and `<id>.txt` (read this one).
 - If it prints "speech-like audio with no words at [...]", Whisper dropped a passage: listen there
   (render a 5 s preview) and re-run that clip with `--force --model large-v3`.
-- After transcribing, skim the `.txt`. Fix recurring proper-noun errors (brands, names) by noting
-  them in `<memory>/preferences.md` under "Vocabulary" so captions use the right spelling; correct the
-  word in the json too when it will appear on screen.
+- Transcription dictionary `<memory>/vocabulary.md` (the user's request, 2026-10-08: "sempre que tu
+  ver que algo tava errado ... vai la e corrige"): `ea transcribe` biases Whisper toward its terms and
+  fixes every new transcript with it. After transcribing, READ the `.txt` files looking for misheard
+  names, places, brands and terms; for EVERY one you spot (or the user points out), right away:
+  `uv run ea vocab <p> --add "heard=right" [--term "Right Name"] --note "<project>" --apply`
+  (`--scope <client>` when the "wrong" word is a real word elsewhere, e.g. prêmio). `--apply` fixes the
+  project's existing transcripts; never fix only the .srt or one json by hand.
