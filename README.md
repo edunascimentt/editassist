@@ -157,6 +157,7 @@ project tier for personal data; CI runs it on every push.
 | | `review` | apply feedback on a version |
 | | `style-profile` | maintain the memory: preferences, named styles, vocabulary |
 | | `preferences-quiz` | short questionnaire that fills the user's preferences (quick, full or one section) |
+| | `sync` | two-way team sync: pull colleagues' changes + install new deps, commit and push code, skills and project memory to `main` |
 
 ## CLI
 
