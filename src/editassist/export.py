@@ -134,7 +134,7 @@ def to_otio(project: Project, tl: dict):
 
 
 def export(project: Project, targets: list[str], open_resolve: bool = False, into_current: bool = False,
-           template: str | None = None) -> dict:
+           template: str | None = None, open_premiere: bool = False) -> dict:
     import opentimelineio as otio
 
     tl = T.load(project)
@@ -147,8 +147,9 @@ def export(project: Project, targets: list[str], open_resolve: bool = False, int
     out_dir.mkdir(exist_ok=True)
     name = tl["name"]
     written, warnings = {}, []
-    # --open builds Resolve natively: crops/zooms become Zoom + Pan, speeds conformed copies; only the files need a bake
-    file_targets = [t for t in targets if not (t == "resolve" and open_resolve)]
+    # --open builds Resolve natively: crops/zooms become Zoom + Pan, speeds conformed copies; only the files need a bake.
+    # Premiere live (open_premiere) frames crops/zooms with Motion; speed still needs the bake (it says so).
+    file_targets = [t for t in targets if not (t == "resolve" and open_resolve) and not (t == "premiere" and open_premiere)]
     if crops and any(t in file_targets for t in ("resolve", "premiere", "fcpx")):
         warnings.append(f"{len(crops)} clips carry crop/zoom/speed that XML/OTIO can't carry reliably; "
                         "run `ea bake <project>` before exporting to an NLE "
@@ -183,6 +184,8 @@ def export(project: Project, targets: list[str], open_resolve: bool = False, int
         p = out_dir / f"{name}.xml"
         otio.adapters.write_to_file(ot, str(p), adapter_name="fcp_xml")
         written["premiere"] = project.rel(p)
+        if open_premiere:
+            written["premiere_live"] = premiere_open(project, into_current)
     if "fcpx" in targets:
         p = out_dir / f"{name}.fcpxml"
         _fcpx_rates()
@@ -200,6 +203,17 @@ def export(project: Project, targets: list[str], open_resolve: bool = False, int
     if srt.exists():
         written["captions"] = project.rel(srt)
     return {"written": written, "warnings": warnings}
+
+
+def premiere_open(project: Project, into_current: bool = False) -> dict | str:
+    """Build the timeline live in a running Premiere Pro (premiere_native through the editassist panel)."""
+    from . import premiere_bridge as B
+    from .premiere_native import build
+
+    try:
+        return build(project, into_current=into_current)
+    except B.BridgeError as e:
+        return f"skipped: {e}. The XML above imports by hand (File > Import)."
 
 
 # --- After Effects ---------------------------------------------------------------------------

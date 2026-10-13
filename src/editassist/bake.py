@@ -54,47 +54,99 @@ def bake(project: Project, color: bool = False, handles: float = 1.0, to: str | 
             picture = video and any(k in c for k in PICTURE_KEYS)
             if not (picture or grade or sp != 1.0):
                 continue
-            a = max(0.0, c["in"] - handles * sp)  # source seconds, handles measured in record time
-            b = min(m["duration"], c["out"] + handles * sp)
-            head = (c["in"] - a) / sp  # record seconds of handle before the clip
-            look = {k: c.get(k) for k in PICTURE_KEYS if video and c.get(k)}
-            if grade:
-                look["color"] = grade
-            ext = ".mp4" if video else ".wav"
-            dst = out_dir / f"{m['id']}_{_key(c['media'], round(a, 3), round(b, 3), sp, look, W, H, fps)}{ext}"
-            if not dst.exists():
-                cmd = ["ffmpeg", "-y", "-v", "error", "-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(project.abs(c["media"]))]
-                if video:
-                    plain = {"media": c["media"], "in": a, "out": b, "fit": c.get("fit", "fill"), "speed": sp,
-                             "visible": T.dur(c), **look}
-                    chain = ",".join(clip_vfilter(project, plain, W, H, fps, t_offset=head, apply_color=bool(grade),
-                                                  grades=grades))
-                    cmd += ["-vf", chain, "-c:v", "libx264", "-crf", "16", "-preset", "medium", "-pix_fmt", "yuv420p"]
-                    if m.get("has_audio"):
-                        cmd += (["-af", atempo_chain(sp)] if sp != 1.0 else []) + ["-c:a", "aac", "-b:a", "256k"]
-                else:
-                    cmd += ["-vn", "-af", atempo_chain(sp), "-c:a", "pcm_s24le"]
-                run(cmd + [str(dst)], cwd=project.dir)
-                stats["baked"] += 1
-            else:
-                stats["reused"] += 1
-            c["source"] = {"media": c["media"], "in": c["in"], "out": c["out"], "speed": sp, **look}
-            d = T.dur(c)
-            for k in PICTURE_KEYS + ("speed",):
-                c.pop(k, None)
-            if grade:
-                c.pop("color", None)
-                c["graded"] = True
-            c["media"] = project.rel(dst)
-            c["in"], c["out"] = head, head + d
-            sid = "baked__" + dst.stem
-            if sid not in catalog:
-                catalog[sid] = {"id": sid, "path": project.rel(dst), "kind": "video" if video else "audio",
-                                "derived": True, **probe(dst)}
-                by_path[catalog[sid]["path"]] = catalog[sid]
+            new = bake_clip(project, c, m, video, grade, W, H, fps, out_dir, handles, grades, catalog, by_path)
+            stats["baked" if new else "reused"] += 1
     write_json(project.path("work", "media.json"), catalog)
     T.save(project, tl)
     return stats
+
+
+def bake_clip(project: Project, c: dict, m: dict, video: bool, grade: dict | None, W: int, H: int, fps: float,
+              out_dir, handles: float, grades: dict, catalog: dict, by_path: dict) -> bool:
+    """Render one clip's picture changes (crop, zoom, whip, stabilize), speed and optional grade into
+    out_dir and repoint `c` at it (in place; the old values go to c["source"]). True when rendered now,
+    False when the same file already existed."""
+    sp = float(c.get("speed", 1.0))
+    a = max(0.0, c["in"] - handles * sp)  # source seconds, handles measured in record time
+    b = min(m["duration"], c["out"] + handles * sp)
+    head = (c["in"] - a) / sp  # record seconds of handle before the clip
+    look = {k: c.get(k) for k in PICTURE_KEYS if video and c.get(k)}
+    if grade:
+        look["color"] = grade
+    ext = ".mp4" if video else ".wav"
+    dst = out_dir / f"{m['id']}_{_key(c['media'], round(a, 3), round(b, 3), sp, look, W, H, fps)}{ext}"
+    new = not dst.exists()
+    if new:
+        cmd = ["ffmpeg", "-y", "-v", "error", "-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(project.abs(c["media"]))]
+        if video:
+            plain = {"media": c["media"], "in": a, "out": b, "fit": c.get("fit", "fill"), "speed": sp,
+                     "visible": T.dur(c), **look}
+            chain = ",".join(clip_vfilter(project, plain, W, H, fps, t_offset=head, apply_color=bool(grade),
+                                          grades=grades))
+            cmd += ["-vf", chain, "-c:v", "libx264", "-crf", "16", "-preset", "medium", "-pix_fmt", "yuv420p"]
+            if m.get("has_audio"):
+                cmd += (["-af", atempo_chain(sp)] if sp != 1.0 else []) + ["-c:a", "aac", "-b:a", "256k"]
+        else:
+            cmd += ["-vn", "-af", atempo_chain(sp), "-c:a", "pcm_s24le"]
+        run(cmd + [str(dst)], cwd=project.dir)
+    c["source"] = {"media": c["media"], "in": c["in"], "out": c["out"], "speed": sp, **look}
+    d = T.dur(c)
+    for k in PICTURE_KEYS + ("speed",):
+        c.pop(k, None)
+    if grade:
+        c.pop("color", None)
+        c["graded"] = True
+    c["media"] = project.rel(dst)
+    c["in"], c["out"] = head, head + d
+    sid = "baked__" + dst.stem
+    if sid not in catalog:
+        catalog[sid] = {"id": sid, "path": project.rel(dst), "kind": "video" if video else "audio",
+                        "derived": True, **probe(dst)}
+        by_path[catalog[sid]["path"]] = catalog[sid]
+    return new
+
+
+def graded_copy(project: Project, c: dict, m: dict, lut: str, out_dir, handles: float = 1.0) -> dict:
+    """The clip's segment (plus handles) with just its LUT applied, at the source's own size, so an NLE
+    whose API can't load a .cube (Premiere 26.x: Input LUT takes a registered GUID only) shows the
+    grade while framing stays editable there. Repoints `c` (in place); returns the copy's catalog entry."""
+    import shutil
+
+    from .videofx import rel_for_filter
+
+    lut_path = project.abs(lut)
+    rel = rel_for_filter(project, lut_path)
+    if rel is None:  # LUT on another Windows drive: ffmpeg filter args can't carry "C:"
+        local = project.path("work", "baked", lut_path.name)
+        local.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(lut_path, local)
+        rel = project.rel(local)
+    still = m.get("kind") == "image"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if still:
+        dst = out_dir / f"{m['id']}_lut_{_key(c['media'], lut, lut_path.stat().st_mtime)}.png"
+        cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(project.abs(c["media"])), "-vf", f"lut3d=file='{rel}'",
+               "-frames:v", "1", str(dst)]
+    else:
+        a = max(0.0, c["in"] - handles)
+        b = min(m.get("duration") or c["out"] + handles, c["out"] + handles)
+        dst = out_dir / f"{m['id']}_lut_{_key(c['media'], round(a, 3), round(b, 3), lut, lut_path.stat().st_mtime)}.mp4"
+        cmd = ["ffmpeg", "-y", "-v", "error", "-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(project.abs(c["media"])),
+               "-vf", f"lut3d=file='{rel}'", "-c:v", "libx264", "-crf", "14", "-preset", "medium", "-pix_fmt", "yuv420p"]
+        cmd += ["-c:a", "aac", "-b:a", "256k"] if m.get("has_audio") else ["-an"]
+        cmd += [str(dst)]
+    if not dst.exists():
+        run(cmd, cwd=project.dir)
+    c["source"] = {"media": c["media"], "in": c["in"], "out": c["out"], "color": {"lut": lut}}
+    c.pop("color", None)
+    c["graded"] = True
+    c["media"] = project.rel(dst)
+    if not still:
+        c["in"], c["out"] = c["in"] - a, c["out"] - a
+    entry = {"id": "baked__" + dst.stem, "path": project.rel(dst), "kind": m.get("kind", "video"), "derived": True}
+    entry.update(probe(dst) if not still else {"duration": 0, "has_video": True, "has_audio": False,
+                                                "width": m.get("width"), "height": m.get("height")})
+    return entry
 
 
 def _ch(c: dict) -> tuple:

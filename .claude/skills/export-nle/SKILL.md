@@ -43,6 +43,9 @@ description: Deliver the edit as an editable project in DaVinci Resolve, Premier
 - After the import, finish inside Resolve with the resolve-live skill (MCP tools: grades,
   transitions, render queue).
 - **Premiere**: `output/<name>.xml` (FCP7 XML). File > Import > choose the .xml; relink if media moved.
+  Live instead (Premiere open with the editassist panel): `uv run ea export <p> --to premiere --open`
+  builds the sequence clip by clip in the open project (framing as Motion, transitions, LUTs, markers;
+  speed/whip still need `ea bake`). Then keep editing there with the premiere-live skill.
   Captions: File > Import the .srt, drag to a caption track.
 - **After Effects**: `output/<name>.jsx`. File > Scripts > Run Script File. Builds the comp, layers,
   crops, gains and caption text layers.

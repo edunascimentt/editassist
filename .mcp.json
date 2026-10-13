@@ -3,6 +3,10 @@
     "davinci-resolve": {
       "command": "uv",
       "args": ["run", "--quiet", "ea", "resolve-mcp"]
+    },
+    "premiere": {
+      "command": "uv",
+      "args": ["run", "--quiet", "ea", "premiere-mcp"]
     }
   }
 }

@@ -14,6 +14,7 @@ dependencies = [
   "pillow>=10.1",
   "numpy>=1.26",
   "fonttools>=4.50",
+  "websockets>=13",
 ]
 
 [project.optional-dependencies]

@@ -73,9 +73,13 @@ export async function runClaude(project: string, text: string): Promise<void> {
         ANTHROPIC_API_KEY: key,
         CLAUDE_CONFIG_DIR: configDir(),
       }),
-      mcpServers: settings.resolveMcp
-        ? { "davinci-resolve": { type: "stdio", command: which("uv") ?? "uv", args: ["run", "--quiet", "ea", "resolve-mcp"] } }
-        : undefined,
+      mcpServers: {
+        // live Premiere Pro through the editassist panel (idle until Premiere connects)
+        premiere: { type: "stdio", command: which("uv") ?? "uv", args: ["run", "--quiet", "ea", "premiere-mcp"] },
+        ...(settings.resolveMcp
+          ? { "davinci-resolve": { type: "stdio", command: which("uv") ?? "uv", args: ["run", "--quiet", "ea", "resolve-mcp"] } }
+          : {}),
+      },
       stderr: (d: string) => log("agent", d.trimEnd()),
       canUseTool: async (toolName, input, { signal, suggestions }) => {
         const requestId = newId();

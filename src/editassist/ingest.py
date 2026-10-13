@@ -40,6 +40,17 @@ def make_proxy(src, px) -> None:
     part.replace(px)
 
 
+def image_size(path: Path) -> dict:
+    """Pixel size of a still (NLE builds frame it like any clip; Premiere places it at native size)."""
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            return {"width": im.width, "height": im.height}
+    except Exception:  # noqa: BLE001  unreadable or exotic format: framing falls back to defaults
+        return {}
+
+
 def ingest(project: Project, proxies: bool = False) -> dict:
     """Catalog first (written before any proxy, so transcription can start), then proxies in parallel:
     decoding 4K 10-bit 4:2:2 is software-only and one ffmpeg uses ~4 cores."""
@@ -55,7 +66,8 @@ def ingest(project: Project, proxies: bool = False) -> dict:
         if sid in seen:  # same stem in two folders
             sid = slug(f.parent) + "__" + sid
         seen.add(sid)
-        info = probe(f) if media_kind(f) != "image" else {"duration": 0, "has_video": True, "has_audio": False}
+        info = probe(f) if media_kind(f) != "image" else {"duration": 0, "has_video": True, "has_audio": False,
+                                                         **image_size(f)}
         entry = {"id": sid, "path": rel, "kind": media_kind(f), **info}
         if entry["kind"] == "video":
             entry.update(camera_meta(f))

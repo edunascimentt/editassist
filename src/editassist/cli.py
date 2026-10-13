@@ -14,6 +14,50 @@ def out(obj) -> None:
     print(json.dumps(obj, indent=2, ensure_ascii=False) if not isinstance(obj, str) else obj)
 
 
+def premiere_cmd(a) -> object:
+    from . import premiere_bridge as B
+
+    try:
+        if a.premiere == "install":
+            return B.install(B.token_path().parent)
+        if a.premiere == "status":
+            st = B.status(wait=6)
+            st["plugin_installed"] = B.installed()
+            if st["connected"]:
+                st["project"] = B.call("info", wait=5)
+            else:
+                st["next"] = B.NO_PANEL
+            return st
+        if a.premiere == "build":
+            from .premiere_native import build, plan
+            from . import timeline as T
+
+            pr = Project(a.project)
+            if a.plan:
+                return plan(pr, T.load(pr), a.name, a.current)
+
+            def progress(ev):
+                print(f"  {ev.get('done')}/{ev.get('total')} {ev.get('text', '')}", file=sys.stderr, flush=True)
+
+            return build(pr, a.name, a.current, save=not a.no_save, on_progress=progress)
+        if a.premiere == "call":
+            return B.call(a.op, json.loads(a.args), timeout=a.timeout)
+        if a.premiere == "exec":
+            code = sys.stdin.read() if a.file == "-" else Path(a.file).read_text(encoding="utf-8")
+            return B.exec_js(code, json.loads(a.args))
+        if a.premiere == "export":
+            return B.export(Path(a.out), a.sequence, a.preset, a.mode)
+        if a.premiere == "frame":
+            return {"frame": str(B.frame(a.time, Path(a.out), a.width, a.sequence)), "time": a.time}
+        if a.premiere == "hub":
+            print(f"premiere hub on 127.0.0.1:{B.PORT} (Ctrl+C stops)", file=sys.stderr)
+            B.serve_forever()
+            return {"stopped": True}
+    except B.BridgeError as e:
+        raise SystemExit(f"premiere: {e}")
+    raise SystemExit(f"unknown premiere command {a.premiere}")
+
+
 def main(argv: list[str] | None = None) -> None:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["resolve-mcp"]:  # MCP stdio server: hand stdout over untouched, before anything prints
@@ -24,6 +68,9 @@ def main(argv: list[str] | None = None) -> None:
             ver = rest[i + 1] if len(rest) > i + 1 and not rest[i + 1].startswith("-") else resolve_mcp.VERSION
             sys.exit(resolve_mcp.setup(ver))
         sys.exit(resolve_mcp.serve(rest))
+    if argv[:1] == ["premiere-mcp"]:  # same: stdout is the MCP channel
+        from . import premiere_mcp
+        sys.exit(premiere_mcp.serve())
     if hasattr(sys.stdout, "reconfigure"):  # Windows consoles default to cp1252
         sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(prog="ea", description=__doc__)
@@ -126,11 +173,15 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--subs", help="burn this .ass/.srt (project-relative)"); p.add_argument("--out", help="output file (project-relative)")
 
     p = sub.add_parser("export", help="editable project for Resolve / Premiere / After Effects")
-    p.add_argument("project"); p.add_argument("--to", nargs="+", default=["resolve", "premiere", "aftereffects"],
-                                              choices=["resolve", "premiere", "fcpx", "aftereffects", "all"])
-    p.add_argument("--open", action="store_true", help="auto-import into a running DaVinci Resolve")
+    p.add_argument("project"); p.add_argument("--to", nargs="+", default=None,
+                                              choices=["resolve", "premiere", "fcpx", "aftereffects", "all"],
+                                              help="default: resolve premiere aftereffects")
+    p.add_argument("--open", action="store_true",
+                   help="build live in the running NLE: DaVinci Resolve, and Premiere Pro when --to names premiere "
+                        "(editassist panel, `ea premiere install`)")
     p.add_argument("--current", action="store_true",
-                   help="with --open: add the timeline to the project open in Resolve (default: a project named after it)")
+                   help="with --open: add the timeline to the project open in Resolve (default: a project named "
+                        "after it) / build into Premiere's active sequence")
     p.add_argument("--template", help="with --open: build inside an emptied copy of this existing timeline "
                                       "(keeps the user's subtitle style and track layout)")
 
@@ -242,6 +293,30 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("resolve-mcp", help="DaVinci Resolve MCP server (used by .mcp.json); --setup [version] installs it")
     p.add_argument("--setup", nargs="?", const="")
+
+    p = sub.add_parser("premiere-mcp", help="Premiere Pro MCP server (used by .mcp.json): live edits through the editassist panel")
+
+    p = sub.add_parser("premiere", help="live bridge to a running Premiere Pro (UXP panel): install, status, build, call, exec, frame")
+    ps = p.add_subparsers(dest="premiere", required=True)
+    q = ps.add_parser("install", help="package the editassist panel (.ccx) and install it with Adobe's installer")
+    ps.add_parser("status", help="hub, panel connection, Premiere version, open project and sequences")
+    q = ps.add_parser("build", help="build timeline.json live as a new sequence in the open Premiere project")
+    q.add_argument("project"); q.add_argument("--name", help="sequence name (default: the timeline's, next free vN)")
+    q.add_argument("--current", action="store_true", help="build into the active sequence instead of a new one")
+    q.add_argument("--no-save", action="store_true", help="don't save the Premiere project afterwards")
+    q.add_argument("--plan", action="store_true", help="only print the build spec (no Premiere needed)")
+    q = ps.add_parser("call", help="run one panel operation: ea premiere call sequence '{\"items\": false}'")
+    q.add_argument("op"); q.add_argument("args", nargs="?", default="{}", help="JSON object")
+    q.add_argument("--timeout", type=float, default=300)
+    q = ps.add_parser("exec", help="run a JS function body inside Premiere (file path, or - for stdin)")
+    q.add_argument("file"); q.add_argument("--args", default="{}", help="JSON object passed as `args`")
+    q = ps.add_parser("frame", help="export the sequence frame at a time as an image (to look at it)")
+    q.add_argument("time", type=float); q.add_argument("out"); q.add_argument("--width", type=int, default=960)
+    q.add_argument("--sequence")
+    q = ps.add_parser("export", help="render a sequence from Premiere (default preset: Match Source - High bitrate H.264)")
+    q.add_argument("out"); q.add_argument("--sequence"); q.add_argument("--preset", help=".epr encoder preset")
+    q.add_argument("--mode", choices=["now", "queue", "ame"], default="now")
+    ps.add_parser("hub", help="keep a bridge hub running in the foreground (no MCP session needed)")
 
     p = sub.add_parser("launch", help="product launch film in Remotion (product-launch skill)")
     ls = p.add_subparsers(dest="launch", required=True)
@@ -421,8 +496,12 @@ def main(argv: list[str] | None = None) -> None:
         out({"rendered": pr.rel(render(pr, a.preset, a.out, a.subs))})
     elif a.cmd == "export":
         from .export import TARGETS, export
-        targets = list(TARGETS) if "all" in a.to else a.to
-        out(export(Project(a.project), targets, a.open, a.current, a.template))
+        to = a.to or ["resolve", "premiere", "aftereffects"]
+        targets = list(TARGETS) if "all" in to else to
+        out(export(Project(a.project), targets, a.open, a.current, a.template,
+                   open_premiere=a.open and a.to is not None and ("premiere" in to or "all" in to)))
+    elif a.cmd == "premiere":
+        out(premiere_cmd(a))
     elif a.cmd == "qa":
         from .qa import check
         out(check(Project(a.project), a.render, a.preset))

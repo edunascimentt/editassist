@@ -92,3 +92,22 @@ project.json (`ea new --client`, `ea client set`), else by a client slug inside 
 Kept private (not in the repo), like all taste: the repo is public and clients are the user's
 business. Feedback is classified general vs client by the agent (style-profile skill), asking when
 unclear. Supersedes per-client looks in `styles/` (per-client looks move to `clients/<slug>/`).
+
+## 2026-10-13 — Premiere live bridge: our own UXP panel + hub, ops sent at runtime
+The user wanted to watch the agent edit inside Premiere (macOS and Windows). Chose UXP (Premiere
+25.6+, the supported path) over a CEP/ExtendScript panel: CEP is deprecated and a CEP bridge was
+reported broken by 26.3. Third-party Premiere MCPs exist but are Node/CEP-heavy or Windows-only;
+ours mirrors the Resolve setup (`.mcp.json` -> `uv run ea premiere-mcp`), needs no Node at runtime,
+and shares one hub with the CLI (`ea premiere build/call/exec/frame`, `ea export --to premiere --open`).
+The panel is a thin shell; `lib.js` is pushed at runtime so the self-improvement loop (CLAUDE.md step 6)
+can grow the ops without reinstalling. `premiere_exec` keeps arbitrary UXP code available for
+whatever the ops lack, guarded by a per-machine token and an Origin check. Speed and whip zooms
+still go through `ea bake` (no API); audio gain/fades/channel picks are rendered copies, as for Resolve.
+
+## 2026-10-13 — Premiere build: rendered copies and a caption layer where the 26.x API stops
+Supersedes "Speed and whip zooms still go through `ea bake`" in the bridge entry above. The live build
+now renders what Premiere's UXP API cannot set (LUT grade, speed, whip) as per-clip copies and places
+captions as a transparent picture layer plus the .srt in the bin, so the sequence matches the approved
+preview with no manual step. Copies keep the source size when only colour changes, so framing stays
+editable as Motion. Native options (Input LUT GUID, caption track) are to be adopted when Adobe's API
+exposes them.

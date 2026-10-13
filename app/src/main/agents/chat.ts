@@ -189,6 +189,9 @@ export function describeTool(name: string, input: Record<string, unknown>): { ti
     case "Agent":
       return { title: `Subtarefa: ${short(s("description"), 70)}`, detail: s("prompt") };
     default:
+      if (name.startsWith("mcp__premiere__")) {
+        return { title: `Premiere Pro: ${name.slice(24)}${s("action") ? ` · ${s("action")}` : ""}`, detail: JSON.stringify(input, null, 1) };
+      }
       if (name.startsWith("mcp__davinci-resolve__")) {
         return { title: `DaVinci Resolve: ${name.slice(22)}${s("action") ? ` · ${s("action")}` : ""}`, detail: JSON.stringify(input, null, 1) };
       }

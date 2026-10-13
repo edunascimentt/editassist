@@ -39,6 +39,11 @@ if (Test-Path "$env:ProgramFiles\Blackmagic Design\DaVinci Resolve") {
   if ($LASTEXITCODE -ne 0) { Write-Host "Resolve MCP setup failed: rerun later with 'uv run ea resolve-mcp --setup'" }
 }
 
+# Premiere Pro live bridge (editassist UXP panel): installed on request, it lets the agent edit Premiere
+if ((Test-Path "$env:ProgramFiles\Adobe\Adobe Premiere Pro 2026") -or (Test-Path "$env:ProgramFiles\Adobe\Adobe Premiere Pro 2025")) {
+  Write-Host "Premiere Pro found: run 'uv run ea premiere install' to let editassist edit it live."
+}
+
 uv run ea doctor
 Write-Host ""
 Write-Host "Done. Open this folder in Claude Code (claude) or Codex and describe the video you want."

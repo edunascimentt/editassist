@@ -18,6 +18,10 @@
 - Podcast episode assembly in Resolve was done by hand through the MCP (2026-10-10, a podcast client: 8 timelines): want `ea podcast <p> --intro <file> --overlap 0.5` that writes the trimmed episode (and multi-file joins, e.g. a part-2 opener from a second file) as timeline.json with the intro on V2/A2, bakes the intro fade as an alpha .mov, and builds it via resolve_native (with set_current_folder before each create).
 - resolve_native: fades/dissolves on overlay tracks could be baked as alpha .mov (ProRes 4444 + fade alpha) instead of only reported, since 21.0 has no SetFades/AddKeyframe.
 
+## Premiere live bridge (built + verified on macOS Premiere 26.3.2, 2026-10-13)
+- 2026-10-13 full pass: every MCP tool and edit action driven over stdio against live Premiere (90/90 checks), a build with LUT, vertical crop, Warp Stabilizer, push-in, dips, still, speed, captions, ducking and one-channel voice compared frame by frame and by audio level with `ea render`, `premiere_export`, new/open project, `--current`.
+- Still unverified: Windows (no Windows machine or VM here; code reviewed and Windows paths/encodings unit-tested only), the MCP inside a real Claude session (stdio driven by a script, same protocol), Premiere with "Scale to frame size" on (pref read + math unit-tested only), anamorphic (non-square pixel) media: `ea render` ignores SAR, Premiere honours it.
+
 ## Not yet verified (as of 2026-10-05)
 
 - Desktop app: a successful agent turn (Claude and Codex were only run up to auth with invalid keys), the Codex ChatGPT login flow, Windows build/run, signed/notarized macOS build.

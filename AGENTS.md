@@ -12,3 +12,11 @@ Live DaVinci Resolve control (resolve-live skill): Claude Code reads `.mcp.json`
 command = "uv"
 args = ["run", "--quiet", "--directory", "/path/to/editassist", "ea", "resolve-mcp"]
 ```
+
+Live Premiere Pro control (premiere-live skill), same idea:
+
+```toml
+[mcp_servers.premiere]
+command = "uv"
+args = ["run", "--quiet", "--directory", "/path/to/editassist", "ea", "premiere-mcp"]
+```

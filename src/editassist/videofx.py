@@ -21,6 +21,7 @@ keeps Windows drive letters ("C:") out of filter arguments, where ':' is a separ
 """
 from __future__ import annotations
 
+import itertools
 import os
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from .project import Project, read_json
 
 
 WHIP_AMP = 0.35
+_labels = itertools.count(1)  # unique filtergraph labels for the push-in overlay
 
 
 def rel_for_filter(project: Project, path: Path) -> str | None:
@@ -58,7 +60,10 @@ def clip_vfilter(project: Project, c: dict, W: int, H: int, fps: float, t_offset
     if c.get("fit", "fill") == "fill":
         f.append(f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}")
     else:
-        f.append(f"scale={W}:{H}:force_original_aspect_ratio=decrease,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2")
+        # transparent bars: on an upper track the tracks below show around it, as in every NLE (opaque
+        # black hid them in the preview only); over the black base, or baked to a file, they are black
+        f.append(f"scale={W}:{H}:force_original_aspect_ratio=decrease,format=yuva420p,"
+                 f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black@0")
     z = c.get("zoom") or {}
     wh = c.get("whip") or {}
     s, zx, zy, ramp = (float(z.get("scale", 1)), float(z.get("x", 0.5)), float(z.get("y", 0.45 if wh else 0.5)),
@@ -72,10 +77,15 @@ def clip_vfilter(project: Project, c: dict, W: int, H: int, fps: float, t_offset
         if wh.get("out"):  # accelerates into the cut (ease-in)
             k += f"*(1+{amp:.3f}*pow(min(max(t-{t_offset + vis - wh['out']:.3f},0)/{wh['out']:.3f},1),2))"
         if ramp > 0 or wh:
-            f.append(f"scale=w='trunc({W}*{k}/2)*2':h='trunc({H}*{k}/2)*2':eval=frame")
+            # A frame size that changes per frame can't go through crop: it keeps the size it saw first, so
+            # the window stuck to the top-left corner (push-ins drifted off their focus point). Overlay the
+            # growing frame on a copy of the WxH one instead: overlay re-reads its size every frame.
+            n = next(_labels)
+            f.append(f"split[zc{n}][zs{n}];[zs{n}]scale=w='trunc({W}*{k}/2)*2':h='trunc({H}*{k}/2)*2':eval=frame"
+                     f"[zz{n}];[zc{n}][zz{n}]overlay=x='-(overlay_w-{W})*{zx}':y='-(overlay_h-{H})*{zy}':eval=frame")
         else:
             f.append(f"scale={round(W * s / 2) * 2}:{round(H * s / 2) * 2}")
-        f.append(f"crop={W}:{H}:'(in_w-{W})*{zx}':'(in_h-{H})*{zy}'")
+            f.append(f"crop={W}:{H}:'(in_w-{W})*{zx}':'(in_h-{H})*{zy}'")
         if wh:  # motion blur on the fastest frames either side of the cut
             on = []
             if wh.get("in"):

@@ -33,6 +33,11 @@ if [[ -d "/Applications/DaVinci Resolve" || -d /opt/resolve ]]; then
   uv run ea resolve-mcp --setup || echo "Resolve MCP setup failed: rerun later with 'uv run ea resolve-mcp --setup'"
 fi
 
+# Premiere Pro live bridge (editassist UXP panel): installed on request, it lets the agent edit Premiere
+if [[ -d "/Applications/Adobe Premiere Pro 2026" || -d "/Applications/Adobe Premiere Pro 2025" ]]; then
+  echo "Premiere Pro found: run 'uv run ea premiere install' to let editassist edit it live."
+fi
+
 uv run ea doctor || true
 echo
 echo "Done. Open this folder in Claude Code (\`claude\`) or Codex and describe the video you want."

@@ -59,6 +59,14 @@ def doctor(as_json: bool = False) -> bool:
     row("Resolve MCP", venv_python(root).exists() and (root / "src" / "server.py").exists(),
         f"live Resolve control via .mcp.json (davinci-resolve-mcp {VERSION}); `uv run ea resolve-mcp --setup`",
         required=False)
+    from . import premiere_bridge as PB
+
+    pst = PB.doctor()
+    detail = ("connected" + (f" (Premiere {pst['premiere_version']})" if pst.get("premiere_version") else "")
+              if pst.get("connected") else
+              "live Premiere control via .mcp.json: `uv run ea premiere install`, then Window > UXP Plugins > editassist"
+              if pst["installer"] else "Adobe's plugin installer not found (Premiere Pro 25.6+ not installed?)")
+    row("Premiere bridge", bool(pst.get("connected")), detail, required=False)
     if as_json:  # for the desktop app
         import json
 

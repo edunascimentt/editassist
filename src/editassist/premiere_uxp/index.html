@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font: 12px system-ui, sans-serif; color: #ddd; background: transparent; margin: 8px; }
+  #state { font-weight: 600; margin-bottom: 4px; }
+  #state.on { color: #6fd66f; }
+  #state.off { color: #e0a040; }
+  #sub { color: #999; margin-bottom: 8px; }
+  #log { font: 11px ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; }
+  .err { color: #ff7b72; }
+  .op { color: #8ab4f8; }
+</style>
+</head>
+<body>
+  <div id="state" class="off">editassist: waiting for ea</div>
+  <div id="sub"></div>
+  <div id="log"></div>
+  <script src="main.js"></script>
+</body>
+</html>

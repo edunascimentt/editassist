@@ -74,7 +74,9 @@ user prompt + media ──► you (Claude Code / Codex) ──► skills (recipe
 - `src/editassist/`: the `ea` CLI (one module per command group)
 - `.claude/skills/`: the recipes you follow
 - `.mcp.json`: the `davinci-resolve` MCP server (live control of a running Resolve Studio; see the
-  resolve-live skill). Launched via `uv run ea resolve-mcp`, installed by setup.
+  resolve-live skill). Launched via `uv run ea resolve-mcp`, installed by setup. Also the `premiere` server
+  (`uv run ea premiere-mcp`): live control of a running Premiere Pro through the editassist UXP panel
+  (`src/editassist/premiere_uxp/`, installed with `uv run ea premiere install`; premiere-live skill).
 - `templates/launch/`: Remotion starter for product launch films (`ea launch new`, product-launch skill)
 - `remotion/`: motion graphics templates (Captions, LowerThird, Title), rendered with `ea motion`
 - `assets/`: bundled fonts (Montserrat, OFL) and the YuNet face model (MIT)
