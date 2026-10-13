@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import statistics
+from pathlib import Path
 
 from . import timeline as T
 from .project import ROOT, Project, read_json
@@ -49,13 +50,49 @@ def face_center(path: str, t0: float, t1: float, samples: int = 8) -> tuple[floa
     return float(statistics.median(xs)), float(statistics.median(ys))
 
 
+def split_at_cuts(project: Project, tl: dict, min_shot: float = 0.4, flashes: list | None = None) -> int:
+    """Split video clips where the camera cuts inside them (a switched multi-camera feed: a podcast's
+    program out goes wide, close-up, reaction), so every shot gets its own face crop. One crop for a
+    whole bite framed the wide on the wrong person (2026-10-10). Audio clips stay whole."""
+    from .scenes import cut_times
+
+    n = 0
+    for tr in tl["tracks"]:
+        if tr["kind"] != "video":
+            continue
+        out = []
+        for c in tr["clips"]:
+            sp = c.get("speed", 1.0)
+            every = cut_times(str(project.abs(c["media"])), 0.3, c["in"], c["out"])
+            cuts = [t for t in every if c["in"] + min_shot <= t <= c["out"] - min_shot]
+            if flashes is not None:  # a camera cut right at the clip's edge flashes the other shot
+                flashes += [f"{c['start'] + (t - c['in']) / sp:.2f}s ({c.get('note') or Path(c['media']).name}): "
+                            f"camera cut {t - c['in'] if t - c['in'] < min_shot else c['out'] - t:.2f}s from the "
+                            f"{'head' if t - c['in'] < min_shot else 'tail'}; move the edit point"
+                            for t in every if t not in cuts]
+            edges = [c["in"], *cuts, c["out"]]
+            for k, (a, b) in enumerate(zip(edges, edges[1:])):
+                part = {**c, "in": a, "out": b, "start": c["start"] + (a - c["in"]) / sp}
+                if k:
+                    part.pop("transition_in", None)
+                if k < len(edges) - 2:
+                    part.pop("transition_out", None)
+                out.append(part)
+            n += len(cuts)
+        tr["clips"] = out
+    return n
+
+
 def reformat(project: Project, aspect: str = "9:16", bake: bool = False) -> dict:
     if aspect not in ASPECTS:
         raise SystemExit(f"aspect must be one of {list(ASPECTS)}")
     W, H = ASPECTS[aspect]
     tl = T.load(project)
     catalog = {m["path"]: m for m in (read_json(project.path("work", "media.json"), {}) or {}).values()}
-    stats = {"clips": 0, "faces": 0}
+    flashes: list[str] = []
+    stats = {"clips": 0, "faces": 0, "split_at_cuts": split_at_cuts(project, tl, flashes=flashes)}
+    if flashes:
+        stats["flash_frames"] = flashes
     for tr in tl["tracks"]:
         if tr["kind"] != "video":
             continue

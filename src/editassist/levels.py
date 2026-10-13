@@ -85,9 +85,13 @@ def mic_channel(project: Project, media: str) -> str | None:
 
 def segment_lufs(project: Project, c: dict) -> float | None:
     """Integrated loudness of the clip's source segment (its `channel` only, when set), or None when
-    it is silent / too short."""
-    r = run(["ffmpeg", "-v", "info", "-ss", f"{c['in']:.3f}", "-t", f"{max(c['out'] - c['in'], 0.1):.3f}",
-             "-i", str(project.abs(c["media"])), "-vn", "-af", T.channel_filter(c) + "ebur128",
+    it is silent. R128 measures 400 ms blocks, so a shorter clip (a click, a flip) read as silent and kept
+    no gain at all: it is padded with silence to one block, which also counts its shortness against it,
+    as the ear does."""
+    dur = max(c["out"] - c["in"], 0.05)
+    pad = "apad=whole_dur=0.4," if dur < 0.4 else ""
+    r = run(["ffmpeg", "-v", "info", "-ss", f"{c['in']:.3f}", "-t", f"{dur:.3f}",
+             "-i", str(project.abs(c["media"])), "-vn", "-af", T.channel_filter(c) + pad + "ebur128",
              "-f", "null", "-"], cwd=project.dir)
     vals = re.findall(r"I:\s+(-?[\d.]+) LUFS", r.stderr)
     v = float(vals[-1]) if vals else -70.0

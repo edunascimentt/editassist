@@ -5,6 +5,13 @@ description: Word-level transcription of every clip with audio (faster-whisper).
 # transcribe
 
 `uv run ea transcribe <p> [--language pt] [--model large-v3-turbo] [--only id1 id2] [--force]`
+`[--head S] [--tail S] [--span START END ...]`
+
+- Long recordings where only the edges matter (trim a podcast's head and tail, find a split point):
+  `--head 600 --tail 480` transcribes just the first 10 and last 8 minutes (times stay in source
+  seconds; the json gets `windows`). A later `--span 2520 3480` on the same clip ADDS that stretch to
+  the partial transcript (only the part not already heard); no `--force` needed. 9 episodes (8 h)
+  took ~35 min this way instead of hours.
 
 - Default model `large-v3-turbo` (good accuracy and speed on CPU). Override per machine with
   `EA_WHISPER_MODEL` in `.env` (`small` for quick drafts, `large-v3` for hard audio).

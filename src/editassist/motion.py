@@ -14,6 +14,24 @@ from .project import ROOT, Project, read_json, write_json
 REMOTION = ROOT / "remotion"
 
 
+IMAGES = {".png", ".jpg", ".jpeg", ".svg", ".webp"}
+
+
+def stage_image(value):
+    """A prop that names an image file on disk is copied into assets/user-media/ (gitignored, served to
+    Remotion as a static file) and replaced by its public path; anything else is returned unchanged."""
+    if not isinstance(value, str) or Path(value).suffix.lower() not in IMAGES:
+        return value
+    src = Path(value).expanduser()
+    if not src.is_file():
+        return value
+    dst = ROOT / "assets" / "user-media" / src.name
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if not dst.exists() or dst.stat().st_mtime < src.stat().st_mtime:
+        shutil.copy2(src, dst)
+    return f"user-media/{src.name}"
+
+
 def render_motion(project: Project, composition: str, props: dict, seconds: float | None = None) -> dict:
     npx = shutil.which("npx")
     if not npx:
@@ -37,6 +55,8 @@ def render_motion(project: Project, composition: str, props: dict, seconds: floa
         if not dst_font.exists():
             shutil.copy2(src, dst_font)
         props["fontFile"] = f"user-fonts/{src.name}"
+    for k, v in list(props.items()):  # image files (logo, symbol): same trick, the browser only sees assets/
+        props[k] = stage_image(v)
     if seconds:
         props["durationInSeconds"] = seconds
     props.setdefault("durationInSeconds", 5)

@@ -6,8 +6,14 @@ description: Change aspect ratio (16:9 to 9:16, 1:1, 4:5) keeping the speaker's 
 
 `uv run ea reformat <p> --aspect 9:16 [--bake]`
 
-- Finds the speaker's face per clip (YuNet) and sets a crop box; no face falls back to centre.
+- Splits video clips at camera cuts inside them (switched multi-camera feeds), then finds the face per
+  shot (YuNet, biggest face) and sets a crop box; no face falls back to centre. `flash_frames` in the
+  output = a camera cut a few frames from a clip edge: move that edit point.
+- In wides the biggest face is often a LISTENER nearer the camera: check every wide and re-aim the
+  crop `x` at the speaker.
 - Without `--bake`: crops live in timeline.json; render and the After Effects export honour them.
+- Resolve via `ea export --open`: no bake needed, crops become Zoom + Pan on each item (how the user
+  frames vertical cuts by hand).
 - With `--bake` (same as running `uv run ea bake <p>` afterwards): renders the crops (and any zooms or
   speed changes) into `work/baked/` and repoints the timeline. Required before exporting to
   Resolve/Premiere, because XML/OTIO can't carry crops. Run it as the LAST picture step, after the cut

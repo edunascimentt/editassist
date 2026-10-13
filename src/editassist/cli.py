@@ -49,12 +49,16 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("transcribe", help="word-level transcripts (faster-whisper)")
     p.add_argument("project"); p.add_argument("--model"); p.add_argument("--language")
     p.add_argument("--only", nargs="*"); p.add_argument("--force", action="store_true")
+    p.add_argument("--head", type=float, help="only the first N seconds of each clip (find where it starts)")
+    p.add_argument("--tail", type=float, help="only the last N seconds of each clip (find where it ends)")
+    p.add_argument("--span", type=float, nargs=2, action="append", metavar=("START", "END"),
+                   help="only this source stretch in seconds (repeatable; combines with --head/--tail)")
 
     p = sub.add_parser("vocab", help="the user's transcription dictionary (<memory>/vocabulary.md): "
                                      "list, --add fixes/--term names, --apply to a project's transcripts")
     p.add_argument("project", nargs="?", help="with --apply: fix this project's existing transcripts")
-    p.add_argument("--add", nargs="*", default=[], help='"heard=right" (multi-word ok)')
-    p.add_argument("--term", nargs="*", default=[], help="right spellings Whisper should know (names, brands)")
+    p.add_argument("--add", nargs="*", action="extend", default=[], help='"heard=right" (multi-word ok); repeatable')
+    p.add_argument("--term", nargs="*", action="extend", default=[], help="right spellings Whisper should know (names, brands)")
     p.add_argument("--note", help="where it was seen (project, date is added)")
     p.add_argument("--scope", help="only for this client's projects (client slug or part of the project name)")
     p.add_argument("--apply", action="store_true")
@@ -154,7 +158,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project"); p.add_argument("file"); p.add_argument("--kind", default="broll"); p.add_argument("--note", default="")
 
     p = sub.add_parser("motion", help="render a Remotion composition (motion graphics / captions)")
-    p.add_argument("project"); p.add_argument("composition", help="Captions | LowerThird | Title")
+    p.add_argument("project"); p.add_argument("composition", help="Captions | LowerThird | Title | Countdown | SaveTheDate")
     p.add_argument("--props", default="{}", help="json string or path to a .json file"); p.add_argument("--seconds", type=float)
 
     p = sub.add_parser("zoom", help="punch-ins: alternate framing on cuts, or emphasis zoom at a moment")
@@ -166,7 +170,7 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("transition", help="dissolve / dip / fade at cuts")
     p.add_argument("project"); p.add_argument("--at", type=float, nargs="*", help="timeline seconds (nearest cut)")
-    p.add_argument("--all", action="store_true"); p.add_argument("--type", default="dissolve", choices=["dissolve", "dip", "fade"])
+    p.add_argument("--all", action="store_true"); p.add_argument("--type", default="dissolve", choices=["dissolve", "dip", "fade", "zoom"])
     p.add_argument("--dur", type=float, default=0.5); p.add_argument("--tracks", nargs="+", default=["V1", "A1"])
     p.add_argument("--fade-in", type=float, default=0.0, help="fade from black at start")
     p.add_argument("--fade-out", type=float, default=0.0, help="fade to black at end")
@@ -185,11 +189,13 @@ def main(argv: list[str] | None = None) -> None:
         p.add_argument(f"--{r}", type=float, default=v, help=f"target LUFS for {r} clips (default {v})")
 
     p = sub.add_parser("shake", help="measure handheld shake per video clip; mark shaky ones `stabilize`")
-    p.add_argument("project"); p.add_argument("--threshold", type=float, default=0.6, help="jitter, %% of frame width")
+    p.add_argument("project"); p.add_argument("--threshold", type=float, default=0.12, help="jitter, %% of frame width")
+    p.add_argument("--wobble", type=float, default=0.5, help="slow hand-held sway, %% of frame width")
     p.add_argument("--dry-run", action="store_true")
 
     p = sub.add_parser("bake", help="render crop/zoom (and --color) into files so NLE exports match")
     p.add_argument("project"); p.add_argument("--color", action="store_true", help="also bake the grade")
+    p.add_argument("--to", help="write the baked clips to this folder (the client's media drive) instead of work/baked")
 
     p = sub.add_parser("beats", help="tempo, beats and downbeats of a music media (work/beats/<id>.json)")
     p.add_argument("project"); p.add_argument("media")
@@ -313,7 +319,7 @@ def main(argv: list[str] | None = None) -> None:
     elif a.cmd == "transcribe":
         from .transcribe import transcribe
         pr = Project(a.project)
-        done = transcribe(pr, a.model, a.language, a.only, a.force)
+        done = transcribe(pr, a.model, a.language, a.only, a.force, a.head, a.tail, a.span)
         out({"transcribed": done, "read": [f"work/transcripts/{d}.txt" for d in done]})
     elif a.cmd == "scenes":
         from .scenes import detect
@@ -506,10 +512,10 @@ def main(argv: list[str] | None = None) -> None:
         out(level(Project(a.project), {"dialogue": a.dialogue, "bed": a.bed, "music": a.music, "sfx": a.sfx}))
     elif a.cmd == "shake":
         from .shake import mark
-        out(mark(Project(a.project), a.threshold, a.dry_run))
+        out(mark(Project(a.project), a.threshold, a.dry_run, a.wobble))
     elif a.cmd == "bake":
         from .bake import bake
-        out(bake(Project(a.project), a.color))
+        out(bake(Project(a.project), a.color, to=a.to))
     elif a.cmd == "hf":
         from . import higgsfield as hf
 

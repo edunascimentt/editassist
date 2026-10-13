@@ -4,8 +4,13 @@ description: ONE highlights/recap/sizzle video of an event, training, day or pla
 ---
 # recap
 
-Structure that works: hook line → title over logo/brand shots → montage → line → montage → ... →
-payoff line (best reaction) → end title on a brand shot until the music's natural end.
+Structure that works (social, after a client review 2026-10-09): **hook montage of ~5 shots, ONE beat
+each (~3 s)** → the first spoken line by 2-3 s, stating what the video is about → lines back to back
+(at most 1-2 beats of montage between them, never long music-only stretches) → payoff line (best
+reaction) → end title on a brand shot until the music's natural end. A slow scenic opening (5 shots
+of 4 beats before anyone speaks = 11 s) was rejected: "demora pra fazer a chamada".
+Many speeches recorded: make SEVERAL shorter videos (recap ~60 s + one per key speaker) instead of one
+long recap; give the protagonist's own speech its own video.
 
 1. ingest (`--proxies`), transcribe, then `ea scenes <p> --frames 6` and READ every overview sheet
    (visual-index skill). Note: log footage (color skill step 0), slow-motion clips (`capture_fps`),
@@ -15,6 +20,8 @@ payoff line (best reaction) → end title on a brand shot until the music's natu
    Get word times with `ea find` / the transcript json; never guess. Drop lines whose picture doesn't
    show the speaker unless you cover them with listeners (b-roll over voice is fine).
 3. Music: music skill. Start it so its ending lands on the video end; `ea beats` for the grid.
+   Avoid generic corporate/"inspiring" stock (the client called it "trilha do CapCut"): prefer a track
+   with character (a known indie/film piece, a piano version of a song) from the user's library.
 4. Build `timeline.json` (format in `src/editassist/timeline.py`):
    - A1 = only the spoken lines (montage clips stay silent: their room tone fights the music).
    - V1 per line = the same clip, held to the next beat so every following cut lands on the music.
@@ -28,7 +35,8 @@ payoff line (best reaction) → end title on a brand shot until the music's natu
    In the builder, snap the beat grid to frames FIRST (`round(t*fps)/fps`) and pad lines with
    `editassist.cut.resolve_segments` (never into a neighbouring word): off-grid cuts became 1-frame
    holes in Resolve (2026-10-08). `ea qa` flags them.
-5. subtitles (`bold`, 3 words, accent = title colour), render preview, qa with `--render`, then LOOK at
+5. `ea shake` (every hand-held clip, including one-beat slow-motion shots), `ea level`.
+   subtitles (`bold`, 3 words, accent = title colour), render preview, qa with `--render`, then LOOK at
    ~20 frames of the render (text overflow, titles over logos, captions over faces).
 6. NLE: export-nle (`--open --current` for the project already open in Resolve).
 

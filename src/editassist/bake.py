@@ -12,7 +12,7 @@ from .media import probe, run
 from .project import Project, read_json, write_json
 from .videofx import clip_vfilter, media_grade
 
-PICTURE_KEYS = ("crop", "zoom", "stabilize")
+PICTURE_KEYS = ("crop", "zoom", "stabilize", "whip")
 
 
 def atempo_chain(sp: float) -> str:
@@ -29,14 +29,18 @@ def _key(*parts) -> str:
     return hashlib.sha1(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:10]
 
 
-def bake(project: Project, color: bool = False, handles: float = 1.0) -> dict:
+def bake(project: Project, color: bool = False, handles: float = 1.0, to: str | None = None) -> dict:
+    """`to`: write the files there (e.g. next to the client's media, so the NLE project does not depend
+    on this repo's folder) instead of work/baked; the timeline then points at absolute paths."""
     tl = T.load(project)
     catalog = read_json(project.path("work", "media.json"), {}) or {}
     by_path = {m["path"]: m for m in catalog.values()}
     grades = media_grade(project)
     W, H, fps = tl["width"], tl["height"], tl["fps"]
     stats = {"baked": 0, "reused": 0}
-    out_dir = project.path("work", "baked")
+    from pathlib import Path
+
+    out_dir = Path(to).expanduser().resolve() if to else project.path("work", "baked")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for tr in tl["tracks"]:
@@ -61,7 +65,8 @@ def bake(project: Project, color: bool = False, handles: float = 1.0) -> dict:
             if not dst.exists():
                 cmd = ["ffmpeg", "-y", "-v", "error", "-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(project.abs(c["media"]))]
                 if video:
-                    plain = {"media": c["media"], "in": a, "out": b, "fit": c.get("fit", "fill"), "speed": sp, **look}
+                    plain = {"media": c["media"], "in": a, "out": b, "fit": c.get("fit", "fill"), "speed": sp,
+                             "visible": T.dur(c), **look}
                     chain = ",".join(clip_vfilter(project, plain, W, H, fps, t_offset=head, apply_color=bool(grade),
                                                   grades=grades))
                     cmd += ["-vf", chain, "-c:v", "libx264", "-crf", "16", "-preset", "medium", "-pix_fmt", "yuv420p"]

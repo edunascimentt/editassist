@@ -15,6 +15,8 @@
 - [decisions.md](decisions.md) — append-only: engine design, timeline format, bundling, bake, Higgsfield, Resolve MCP, memory tiers, client prefs
 
 - **BUILT (2026-10-01):** full pipeline + 28 skills + tests/CI. **2026-10-02:** Resolve MCP, memory-os, product-launch skill (`templates/launch/`, `ea launch`).
+- **2026-10-10:** podcast episodes trimmed + intro on V2 in Resolve: `ea transcribe --head/--tail/--span` (partial, mergeable transcripts); Resolve 21.0 has no AddKeyframe (fades baked as alpha ProRes); MCP add_track auto-archives and moves the pool's current folder. Season reel (9:16): crops reach Resolve as Zoom + Pan (no bake), reformat splits at camera cuts, `--lines` captions kept as written, generated graphics need `setsar=1`. Reel v2: zoom-through transitions (`whip`), bake --to, subtitles re-placed when the playhead move fails.
+- **2026-10-09 (4):** client review of the inauguração: `ea shake` catches gentle hand-held + short slow-mo shots, off-centre zooms reach Resolve (Pan/Tilt), `ea beats` gives the natural `end`, captions join split numbers and break at cut-out sentences, `ea vocab --add` repeatable; recap skill: hook montage first.
 - **2026-10-09 (3):** per-client preferences (`ea client`, `<memory>/clients/<slug>/preferences.md`, general vs client rule in style-profile/review/CLAUDE.md); skills catalogue page.
 - **2026-10-09 (2):** `sync` skill (34): pull + deps install, commit, push to `main` for colleagues; `.gitattributes` union merge for facts/decisions/people.
 - **2026-10-09:** timeline slots (`ea timeline save/load`): several videos per project, captions stamped per timeline; qa overlay-past-picture check; render trims loudness to target; Resolve timelines filed in bin `TIMELINES FINAIS`.

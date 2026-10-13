@@ -155,15 +155,26 @@ def measure(path: Path) -> tuple[float, float] | None:
 def trim_loudness(dst: Path, lufs: float, tp: float, tol: float = 0.5) -> float:
     """Single-pass loudnorm misses the target on music with a wide range (a loud montage then a soft
     outro rendered at -15.7 for a -14 target): measure the file and fix the gain in a remux (video
-    copied), never pushing the true peak over `tp`. Returns the gain applied."""
+    copied), never leaving the true peak over `tp`. The AAC encoder adds its own overshoot on sharp
+    transients (flip-clock clicks: a -1.0 dBTP mix came out at +0.7, and a -1.8 dB fix only reached +0.5),
+    so the result is measured again and re-encoded from the same source with more cut until it fits.
+    Returns the gain applied."""
     m = measure(dst)
-    if not m or abs(m[0] - lufs) <= tol:
+    if not m:
         return 0.0
-    gain = min(lufs - m[0], tp - 0.1 - m[1])
+    gain = min(0.0 if abs(m[0] - lufs) <= tol else lufs - m[0], tp - 0.1 - m[1])
     if abs(gain) < 0.1:
         return 0.0
-    tmp = dst.with_suffix(".gain" + dst.suffix)
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(dst), "-map", "0", "-c:v", "copy", "-af",
-                    f"volume={gain:.2f}dB", "-c:a", "aac", "-b:a", "192k", str(tmp)], check=True)
-    tmp.replace(dst)
+    src = dst.with_suffix(".pre" + dst.suffix)
+    dst.replace(src)
+    try:
+        for _ in range(5):
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-map", "0", "-c:v", "copy", "-af",
+                            f"volume={gain:.2f}dB", "-c:a", "aac", "-b:a", "192k", str(dst)], check=True)
+            after = measure(dst)
+            if not after or after[1] <= tp:
+                break
+            gain -= after[1] - tp + 0.2
+    finally:
+        src.unlink(missing_ok=True)
     return round(gain, 2)

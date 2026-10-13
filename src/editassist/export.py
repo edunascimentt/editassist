@@ -147,7 +147,9 @@ def export(project: Project, targets: list[str], open_resolve: bool = False, int
     out_dir.mkdir(exist_ok=True)
     name = tl["name"]
     written, warnings = {}, []
-    if crops and any(t in targets for t in ("resolve", "premiere", "fcpx")):
+    # --open builds Resolve natively: crops/zooms become Zoom + Pan, speeds conformed copies; only the files need a bake
+    file_targets = [t for t in targets if not (t == "resolve" and open_resolve)]
+    if crops and any(t in file_targets for t in ("resolve", "premiere", "fcpx")):
         warnings.append(f"{len(crops)} clips carry crop/zoom/speed that XML/OTIO can't carry reliably; "
                         "run `ea bake <project>` before exporting to an NLE "
                         "(After Effects applies crops and zooms natively)")
@@ -374,8 +376,9 @@ def resolve_import(project: Project, tl: dict, otio_path: Path, into_current: bo
     existing = {rp.GetTimelineByIndex(i + 1).GetName() for i in range(rp.GetTimelineCount())}
     name = next_timeline_name(tl["name"], existing)
     srt = otio_path.with_suffix(".srt")
-    # a template (the user's styled timeline) can only be honoured by the native build
-    timeline = None if template else mp.ImportTimelineFromFile(str(otio_path), {"timelineName": name,
+    # a template (the user's styled timeline) and crops (Zoom + Pan per item) only survive the native build
+    cropped = any(c.get("crop") for tr in tl["tracks"] if tr["kind"] == "video" for c in tr["clips"])
+    timeline = None if template or cropped else mp.ImportTimelineFromFile(str(otio_path), {"timelineName": name,
                                                                                 "importSourceClips": True})
     if not timeline:  # seen on Studio 21.0.0 for every OTIO/XML: build it clip by clip instead
         from .resolve_native import build, file_timeline
@@ -388,7 +391,7 @@ def resolve_import(project: Project, tl: dict, otio_path: Path, into_current: bo
         how = f"inside a copy of '{template}'" if template else "Resolve rejected the OTIO"
         return (f"ok (built natively, {how}): project '{rp.GetName()}', timeline '{name}', "
                 f"{rep['placed']} clips, LUT on {rep['luts']}, {rep['speed_conformed']} speed copies conformed, {rep['zooms']} zooms, "
-                f"{rep.get('stabilized', 0)} stabilized, {rep.get('gain_baked', 0)} audio clips at their level"
+                f"{rep.get('crops', 0)} crops (Zoom + Pan), {rep.get('stabilized', 0)} stabilized, {rep.get('gain_baked', 0)} audio clips at their level"
                 f"{', subtitles placed' if rep.get('subtitles') else ''}{failed}{notes}{_filed(filed)}")
     rp.SetCurrentTimeline(timeline)
     from .resolve_native import file_timeline

@@ -11,6 +11,10 @@ start and end of the video. Never put them on every cut of a talking head.
   the nearest cut on V1; also applies to A1 for an audio crossfade).
 - Every cut (montages only): `--all`.
 - Dip to black (chapter break): `--type dip --dur 0.8`.
+- Zoom-through (reels, "mais dinâmico"): `--type zoom --dur 0.16` on V1 only (`--at` the bite changes):
+  the outgoing clip accelerates into a zoom, the incoming lands from it, blurred on the fastest frames
+  (`whip` on both clips). Put a short whoosh with its PEAK on the cut (measure the file's peak; you
+  can't listen). Picture-only and rendered: run `ea bake` before a Resolve/Premiere export.
 - Video start and end: `uv run ea transition <p> --fade-in 0.5 --fade-out 1.5`.
 - Clear: `uv run ea transition <p> --clear`.
 

@@ -36,7 +36,8 @@ def timeline_words(project: Project, tl: dict) -> list[dict]:
                 sp = c.get("speed", 1.0)
                 a = c["start"] + (max(w["start"], c["in"]) - c["in"]) / sp
                 b = c["start"] + (min(w["end"], c["out"]) - c["in"]) / sp
-                item = {"word": unicodedata.normalize("NFC", w["word"]), "start": round(a, 3), "end": round(max(b, a + 0.05), 3)}
+                item = {"word": unicodedata.normalize("NFC", w["word"]), "start": round(a, 3), "end": round(max(b, a + 0.05), 3),
+                        "_src": (c["media"], w["start"], w["end"])}  # for group(): never join two cut-apart lines
                 if w.get("speaker"):
                     item["speaker"] = w["speaker"]
                 out.append(item)
@@ -71,7 +72,7 @@ def group(ws: list[dict], max_words: int = 4, max_chars: int = 28, max_gap: floa
         text = " ".join(x["word"] for x in cur + [w])
         brk = cur and (len(cur) >= max_words or len(text) > max_chars or w["start"] - cur[-1]["end"] > max_gap
                        or cur[-1]["word"].endswith((".", "?", "!")) or cur[-1].get("speaker") != w.get("speaker")
-                       or (phrase and cur[-1]["word"].endswith((",", ";", ":"))))
+                       or (phrase and cur[-1]["word"].endswith((",", ";", ":"))) or _jump(cur[-1], w))
         if brk:
             carry = []
             while phrase and len(cur) > 1 and len(carry) < 2 and _clings(cur[-1], carry[0] if carry else w) \
@@ -83,8 +84,18 @@ def group(ws: list[dict], max_words: int = 4, max_chars: int = 28, max_gap: floa
         cur.append(w)
     if cur:
         lines.append(cur)
+    lines = [[{k: v for k, v in x.items() if k != "_src"} for x in l] for l in lines]
     return [{"start": l[0]["start"], "end": l[-1]["end"], "words": l,
              **({"speaker": l[0]["speaker"]} if l[0].get("speaker") else {})} for l in lines]
+
+
+def _jump(a: dict, b: dict, max_skip: float = 3.0) -> bool:
+    """Two words from different files, or with > max_skip s of source between them: whole sentences were
+    cut out there, so they belong to different lines ("na gente | Vavá" read as one, 2026-10-09).
+    Pauses closed by a silence cut (< 3 s) keep the sentence together."""
+    if "_src" not in a or "_src" not in b:
+        return False
+    return a["_src"][0] != b["_src"][0] or b["_src"][1] - a["_src"][2] > max_skip
 
 
 def sentences(ws: list[dict], max_gap: float = 1.2) -> list[dict]:
@@ -163,6 +174,20 @@ def apply_fixes(ws: list[dict], fixes: list[str]) -> list[dict]:
     return out
 
 
+def join_numbers(ws: list[dict]) -> list[dict]:
+    """Whisper splits thousands into two tokens ("1" ".217.", "3" ".500"): captions showed "1 .217".
+    A token starting with "." or "," plus a digit joins the previous one when that ends in a digit."""
+    import re
+
+    out: list[dict] = []
+    for w in ws:
+        if out and re.match(r"^[.,]\d", w["word"]) and re.search(r"\d$", out[-1]["word"]):
+            out[-1] = {**out[-1], "word": out[-1]["word"] + w["word"], "end": w["end"]}
+        else:
+            out.append(w)
+    return out
+
+
 def drop_strays(ws: list[dict], gap: float = 2.0) -> list[dict]:
     """Whisper hallucinates lone short words in engine noise or music ("A" in the middle of a launch):
     a 1-2 letter word with silence on both sides (>= 0.8 s, one side >= `gap`) is not a caption."""
@@ -182,7 +207,7 @@ def build(project: Project, style: str = "clean", max_words: int = 4, karaoke: b
 
     tl = T.load(project)
     known = vocab.load(project.dir.name)  # the user's dictionary, then this call's fixes
-    ws = drop_strays(apply_fixes(vocab.fix_words(timeline_words(project, tl), known["fixes"])[0], fixes))
+    ws = drop_strays(join_numbers(apply_fixes(vocab.fix_words(timeline_words(project, tl), known["fixes"])[0], fixes)))
     ws = vocab.keep_terms(ws, known["terms"])
     if not ws:
         raise SystemExit("no words on the timeline: transcribe first and make sure A1 has dialogue")
@@ -205,7 +230,11 @@ def from_lines(project: Project, lines_file: str, name: str, style: str = "clean
         step = (it["end"] - it["start"]) / max(len(toks), 1)
         ws = [{"word": unicodedata.normalize("NFC", t), "start": round(it["start"] + i * step, 3),
                "end": round(it["start"] + (i + 1) * step, 3)} for i, t in enumerate(toks)]
-        lines += group(ws, max_words=7, max_chars=42, max_gap=9)  # long sentences -> readable chunks
+        # a line written to fit stays as written (the editor polished it: "eu falo, e é bom," was split at
+        # its comma into a 0.2 s flash, 2026-10-10); only long sentences are chunked
+        fits = len(toks) <= 7 and len(it["text"]) <= 42
+        lines += [{"start": ws[0]["start"], "end": ws[-1]["end"], "words": ws}] if fits else \
+            group(ws, max_words=7, max_chars=42, max_gap=9)
     return _write(project, lines, name, style, karaoke=False, captions_file=f"work/captions_{name}.json")
 
 

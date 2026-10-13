@@ -204,6 +204,34 @@ def test_beats_on_click_track(project):
     assert all(round(t / 0.5) % 4 == 0 for t in b["downbeats"][:4])
 
 
+def test_beats_takes_a_library_file_path(project, tmp_path):
+    """`ea beats <p> <file>` on a track from the music library crashed with a bare KeyError: it only took
+    media ids. A file path is now registered as music and analysed."""
+    import shutil
+    from editassist.beats import detect
+    from editassist.ingest import media_by_id
+
+    lib = tmp_path / "Library Track.wav"
+    shutil.copy(project.abs(media_by_id(project)["music_120"]["path"]), lib)
+    r = detect(project, str(lib))
+    assert r["bpm"] == pytest.approx(120, abs=1.5)
+    assert r["media"] in media_by_id(project)
+    with pytest.raises(SystemExit, match="unknown media"):
+        detect(project, "no_such_id")
+
+
+def test_beats_report_the_natural_end_before_trailing_silence(tmp_path):
+    """A track whose file ran 3 s of digital silence past its last note left a silent end card when the
+    builder lined the file's end up with the video's end (2026-10-09)."""
+    from editassist.beats import detect_file
+
+    f = tmp_path / "song.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                    "sine=f=220:d=6,volume='if(lt(t,4),1,exp(-(t-4)*12))':eval=frame,apad=pad_dur=3",
+                    str(f)], check=True)
+    assert detect_file(str(f))["end"] == pytest.approx(4.5, abs=0.3)  # rung out ~0.4 s after 4 s, not 9 s
+
+
 def test_sync_finds_camera_offset(project):
     from editassist.sync import sync
 
@@ -465,7 +493,7 @@ def _fake_resolve():
             return True
 
         def SetProperty(self, k, v):
-            if k in ("ZoomX", "ZoomY"):
+            if k in ("ZoomX", "ZoomY", "Pan", "Tilt"):
                 self.info[k] = v
                 return True
             return False  # Resolve 21.0: no audio volume
@@ -476,6 +504,30 @@ def _fake_resolve():
             self.tracks = {"video": 1, "audio": 1, "subtitle": 0}
             self.items = []
             self.settings = {"timelineFrameRate": rate}
+            self.playhead, self.subs = 86400 + 3960, []  # a frame grab left the playhead at 01:06
+
+        def GetStartTimecode(self):
+            return "01:00:00:00"
+
+        def SetCurrentTimecode(self, tc):
+            if getattr(self, "stale", 0):  # live 21.0: the first move after a template copy did not take
+                self.stale -= 1
+                return True
+            self.playhead = 86400 if tc == "01:00:00:00" else self.playhead
+            return True
+
+        def DeleteClips(self, items, ripple=False):
+            self.subs = [f for f in self.subs if f not in [i.GetStart() for i in items]]
+            return True
+
+        def GetItemListInTrack(self, kind, i):
+            class Sub:
+                def __init__(self, f):
+                    self.f = f
+
+                def GetStart(self):
+                    return self.f
+            return [Sub(f) for f in self.subs] if kind == "subtitle" else []
 
         def SetSetting(self, k, v):
             if k == "timelineFrameRate":
@@ -551,6 +603,8 @@ def _fake_resolve():
 
         def AppendToTimeline(self, infos):
             info = dict(infos[0]) if isinstance(infos[0], dict) else {"srt": True}
+            if "srt" in info and self.tl:  # Resolve drops an .srt's cues at the playhead
+                self.tl.subs.append(self.tl.playhead)
             if "mediaPoolItem" in info:
                 info["_fps"] = info["mediaPoolItem"].GetClipProperty("FPS")
                 self.tl.items.append(info)
@@ -637,7 +691,17 @@ def test_resolve_native_speed_up_and_zoom(project, monkeypatch):
     vids = [i for i in rp.mp.tl.items if i["mediaType"] == 1]
     assert rep["speed_conformed"] == 2 and rep["zooms"] == 1 and not rep["failed"]
     assert [i["mediaPoolItem"].GetClipProperty("FPS") for i in vids] == [30.0, 60.0, 24.0]
-    assert vids[0]["ZoomX"] == vids[0]["ZoomY"] == 1.2
+    assert vids[0]["ZoomX"] == vids[0]["ZoomY"] == 1.2 and "Pan" not in vids[0]
+    # off-centre: the same window as the render's crop (a speaker at the left of a wide stays in frame)
+    from editassist.resolve_native import zoom_offset
+    assert zoom_offset({"scale": 1.5, "x": 0.3, "y": 0.45}, 1080, 1920) == (108.0, -48.0)
+    assert zoom_offset({"scale": 2.0, "x": 0.0, "y": 1.0}, 1000, 1000) == (500.0, 500.0)  # edge, no border
+    v[0]["zoom"] = {"scale": 1.5, "x": 0.3, "y": 0.45, "ramp": 0}
+    rp2 = _fake_resolve()
+    resolve_native.build(project, tl, rp2, "fast off")
+    first = [i for i in rp2.mp.tl.items if i["mediaType"] == 1][0]
+    assert (first["Pan"], first["Tilt"]) == (pytest.approx(0.5 * tl["width"] * 0.2), pytest.approx(-0.5 * tl["height"] * 0.05))
+    v[0]["zoom"] = {"scale": 1.2, "x": 0.5, "y": 0.5, "ramp": 0}
     assert vids[1]["startFrame"] == 60 and vids[1]["endFrame"] == 120  # frames of the 30 fps file
     bins = {f.GetName() for f in rp.mp.root.subs[0].subs}
     assert bins == {"speed 60", "speed 24"}
@@ -772,7 +836,7 @@ def test_shake_marks_only_handheld_clips(project):
     from editassist.shake import mark
 
     still = "testsrc2=s=480x300:r=30,trim=end_frame=1,loop=loop=200:size=1,setpts=N/30/TB"
-    for name, crop in (("pan.mp4", "x='t*20':y=40"),  # smooth camera move: not shake
+    for name, crop in (("pan.mp4", "x='n':y=40"),  # smooth camera move (crop x snaps to even px, 2 px per sampled frame): not shake
                        ("shaky.mp4", "x='40+30*random(1)':y='30+25*random(2)'")):
         subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", still, "-t", "4",
                         "-vf", f"crop=320:180:{crop}", "-c:v", "libx264", str(project.path("input", name))], check=True)
@@ -804,6 +868,36 @@ def test_shake_marks_only_handheld_clips(project):
     T.save(project, tl)
     mark(project)
     assert "stabilize" not in T.track(T.load(project), "V2")["clips"][0]
+
+
+def test_shake_marks_gentle_handheld_sway(project):
+    """Hand-held slow motion sways slowly with a little tremor: the old 0.6 jitter threshold left 33 of 38
+    such clips unstabilised and the client saw every one (2026-10-09). A tripod shot stays unmarked."""
+    from editassist.ingest import ingest
+    from editassist.shake import THRESHOLD, mark
+
+    still = "testsrc2=s=960x600:r=30,trim=end_frame=1,loop=loop=200:size=1,setpts=N/30/TB"
+    for name, crop in (("tripod.mp4", "x=80:y=60"),
+                       ("sway.mp4", "x='80+20*sin(t*2.2)':y='60+14*sin(t*1.6+1)'"),  # slow drift only
+                       ("tremor.mp4", "x='80+3*random(1)':y='60+3*random(2)'")):  # 0-2 px of 640 (crop x is even)
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", still, "-t", "4",
+                        "-vf", f"crop=640:360:{crop}", "-c:v", "libx264", str(project.path("input", name))], check=True)
+    ingest(project)
+    tl = T.from_segments(project, [{"media": f"input/{n}.mp4", "in": 0, "out": 3}
+                                   for n in ("tripod", "sway", "tremor")], with_video=True)
+    T.save(project, tl)
+    rep = mark(project)
+    by = {c["media"]: c for c in rep["clips"]}
+    assert not by["tripod.mp4"]["stabilize"]
+    assert by["sway.mp4"]["stabilize"] and by["sway.mp4"]["jitter_pct"] < 0.6  # caught by wobble
+    assert by["tremor.mp4"]["stabilize"] and by["tremor.mp4"]["jitter_pct"] < 0.6 and THRESHOLD < 0.6
+    # a 0.25 s source span (one beat of 0.4x slow motion) is judged on the take around it, not skipped
+    tl = T.from_segments(project, [{"media": "input/tremor.mp4", "in": 1.0, "out": 1.25},
+                                   {"media": "input/tripod.mp4", "in": 1.0, "out": 1.25}], with_video=True)
+    T.save(project, tl)
+    rep = mark(project)
+    assert [c["stabilize"] for c in rep["clips"]] == [True, False]
+    assert [c.get("stabilize", False) for c in T.track(T.load(project), "V1")["clips"]] == [True, False]
 
 
 def test_resolve_native_builds_inside_template_timeline(project):
@@ -928,6 +1022,48 @@ def test_vocabulary_dictionary_fixes_transcripts_and_captions(project, tmp_path,
     assert "Olá!" in words and "footage." in words and "Hoje" in words
     assert "footage." in project.path("work", "transcripts", "cam_a.txt").read_text(encoding="utf-8")
     assert vocab.apply_project(project)["changed"] == {}  # idempotent
+
+
+def test_vocab_cli_add_is_repeatable(tmp_path, monkeypatch, capsys):
+    """`ea vocab --add "a=b" --add "c=d"` kept only the last fix (argparse nargs without extend), so
+    "Tom Bonário Camboriú=Balneário Camboriú" was silently lost (2026-10-09)."""
+    from editassist import vocab
+    from editassist.cli import main
+
+    monkeypatch.setenv("EA_MEMORY_DIR", str(tmp_path / "mem"))
+    main(["vocab", "--add", "Tom Bonário Camboriú=Balneário Camboriú", "--add", "Ravá=Vavá",
+          "--term", "Conanda", "--term", "Yacht Club"])
+    d = vocab.load()
+    assert d["fixes"] == ["Tom Bonário Camboriú=Balneário Camboriú", "Ravá=Vavá"]
+    assert "Conanda" in vocab.hotwords() and "Yacht Club" in vocab.hotwords()
+
+
+def test_captions_join_split_thousands():
+    """Whisper wrote "1" ".217." and "3" ".500": captions read "AOS 1 .217." (2026-10-09)."""
+    from editassist.subtitles import join_numbers
+
+    w = lambda word, a: {"word": word, "start": a, "end": a + 0.3}
+    out = join_numbers([w("aos", 0), w("1", 1), w(".217.", 1.3), w("mais", 2), w("de", 2.3), w("3", 2.6),
+                        w(".500", 2.9), w("Tutelar.", 3.5), w(".", 4)])
+    assert [x["word"] for x in out] == ["aos", "1.217.", "mais", "de", "3.500", "Tutelar.", "."]
+    assert out[1]["start"] == 1 and out[1]["end"] == 1.6
+
+
+def test_captions_break_where_sentences_were_cut_out():
+    """"...votar na gente" + (31 s of speech dropped) + "Vavá, Nádia" made one caption "NA GENTE VAVÁ,"
+    (2026-10-09). A pause closed by a silence cut (< 3 s of source) still keeps one line."""
+    from editassist.subtitles import group
+
+    def w(word, a, src, f="talk.mp4"):
+        return {"word": word, "start": a, "end": a + 0.3, "_src": (f, src, src + 0.3)}
+
+    cut = [w("votar", 0, 105.0), w("na", 0.3, 105.3), w("gente", 0.6, 105.6), w("Vavá,", 0.9, 137.8)]
+    assert [[x["word"] for x in l["words"]] for l in group(cut)] == [["votar", "na", "gente"], ["Vavá,"]]
+    assert all("_src" not in x for l in group(cut) for x in l["words"])
+    pause = [w("votar", 0, 105.0), w("na", 0.3, 105.3), w("gente", 0.6, 107.0)]  # 1.4 s pause removed
+    assert len(group(pause)) == 1
+    other = [w("tamo", 0, 5.0), w("junto", 0.3, 5.3, "b.mp4")]
+    assert len(group(other)) == 2
 
 
 def test_captions_never_break_inside_a_dictionary_term():
@@ -1142,3 +1278,259 @@ def test_client_preferences_folder(tmp_path, monkeypatch):
     vocab.add(["ana sousa=Ana Souza"], scope="ana-souza")
     assert vocab.load("reel-lancamento")["fixes"] == ["ana sousa=Ana Souza"]  # name has no "ana-souza"
     assert vocab.load("pod")["fixes"] == []
+
+
+def test_transcribe_head_tail_windows_keep_source_time(project, monkeypatch):
+    """Trimming hour-long podcast recordings only needs their first and last minutes: --head/--tail
+    transcribe those windows alone, and every time stays in source seconds."""
+    from types import SimpleNamespace as NS
+
+    from editassist import transcribe as TR
+
+    assert TR.windows(100, 30, 20) == [(0.0, 30), (80, 100)]
+    assert TR.windows(100, 60, 60) == [(0.0, 100)]  # overlapping windows = the whole clip
+    assert TR.windows(100) == [(0.0, 100)]
+    assert TR.windows(100, 10, 10, [(40, 60), (55, 70)]) == [(0.0, 10), (40, 70), (90, 100)]
+    heard = []
+
+    class FakeWhisper:
+        def transcribe(self, audio, **kw):
+            heard.append(len(audio) / 16000)
+            w = NS(start=1.0, end=1.5, word="oi", probability=0.9)
+            return [NS(start=1.0, end=1.5, text="oi", words=[w])], NS(language="pt")
+
+    monkeypatch.setattr(TR, "_model", lambda name: FakeWhisper())
+    TR.transcribe(project, only=["cam_a"], force=True, head=2, tail=3)
+    t = TR.load_transcript(project, "cam_a")
+    dur = t["windows"][1][1]
+    assert heard == pytest.approx([2, 3], abs=0.01)
+    assert [s["start"] for s in t["segments"]] == pytest.approx([1.0, dur - 3 + 1.0], abs=0.01)
+    assert t["windows"][0] == [0.0, 2]
+    assert TR.missing([(0, 10), (20, 30)], [(0, 4), (25, 40)]) == [(4, 10), (20, 25)]
+
+    # a later --span only transcribes what the partial transcript lacks, and keeps the rest
+    heard.clear()
+    TR.transcribe(project, only=["cam_a"], spans=[(1, 4)])
+    t = TR.load_transcript(project, "cam_a")
+    assert heard == pytest.approx([2], abs=0.01)  # 2-4 s, 1-2 s was already heard
+    assert t["windows"][0] == [0.0, 4]
+    assert [s["start"] for s in t["segments"]] == pytest.approx([1.0, 3.0, dur - 3 + 1.0], abs=0.01)
+
+
+def test_resolve_native_crop_as_zoom_and_pan(project):
+    """A reformatted (9:16) timeline is framed in Resolve with Zoom + Pan per item, as the user frames
+    vertical cuts by hand (Zoom 3.16 on 16:9 in 9:16), instead of needing `ea bake`."""
+    from editassist import resolve_native
+    from editassist.project import read_json
+    from editassist.resolve_native import crop_transform
+
+    # full-height 9:16 window of a 1920x1080 clip, centred: the user's own Zoom 3.1605, no Pan
+    assert crop_transform({"w": 608, "h": 1080, "x": 656, "y": 0}, 1920, 1080, 1080, 1920) == (3.1605, 0.0, 0.0)
+    # window at the left edge: the image moves right by (960 - 304) source px x 1920/1080
+    z, pan, tilt = crop_transform({"w": 608, "h": 1080, "x": 0, "y": 0}, 1920, 1080, 1080, 1920)
+    assert pan == pytest.approx(656 * 1920 / 1080, abs=0.1) and tilt == 0
+    # a punch-in on top scales the offset too
+    assert crop_transform({"w": 608, "h": 1080, "x": 0, "y": 0}, 1920, 1080, 1080, 1920,
+                          {"scale": 1.2, "x": .5, "y": .5})[:2] == pytest.approx((3.1605 * 1.2, pan * 1.2), abs=0.2)
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.0, "out": 1.0}])
+    cam = next(x for x in read_json(project.path("work", "media.json")).values() if x["path"].endswith("cam_a.mp4"))
+    sw, sh = cam["width"], cam["height"]
+    tl["width"], tl["height"] = 1080, 1920
+    cw = int(sh * 9 / 16) // 2 * 2
+    T.track(tl, "V1")["clips"][0]["crop"] = {"w": cw, "h": sh, "x": 0, "y": 0}
+    rp = _fake_resolve()
+    rep = resolve_native.build(project, tl, rp, "vertical v1")
+    vid = [i for i in rp.mp.tl.items if i["mediaType"] == 1][0]
+    want = crop_transform({"w": cw, "h": sh, "x": 0, "y": 0}, sw, sh, 1080, 1920)
+    assert rep.get("crops") == 1 and not rep["failed"]
+    assert (vid["ZoomX"], vid["ZoomY"], vid["Pan"], vid["Tilt"]) == (want[0], want[0], want[1], want[2])
+    assert vid["Pan"] > 0  # speaker at the left of the wide: picture shifted right
+
+
+def test_reformat_splits_clips_at_camera_cuts(project, tmp_path):
+    """A bite from a switched podcast feed goes wide -> close-up inside one clip: reformat splits it at
+    the camera cut (scene score on just that source stretch, in source seconds) so each shot gets its
+    own face crop; one crop for the whole clip framed the wide on the wrong person (2026-10-10)."""
+    from editassist.reformat import split_at_cuts
+    from editassist.scenes import cut_times
+
+    src = tmp_path / "switched.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=3",
+                    "-f", "lavfi", "-i", "smptebars=s=320x180:r=30:d=3", "-filter_complex", "[0][1]concat=n=2",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(src)], check=True)
+    cuts = cut_times(str(src), 0.3, 1.0, 5.0)
+    assert len(cuts) == 1 and cuts[0] == pytest.approx(3.0, abs=0.05)
+    assert cut_times(str(src), 0.3, 3.5, 5.5) == []  # a stretch inside one shot
+    tl = {"tracks": [{"kind": "video", "name": "V1", "clips": [
+              {"media": str(src), "in": 1.0, "out": 5.0, "start": 10.0, "transition_in": {"type": "fade"}}]},
+          {"kind": "audio", "name": "A1", "clips": [{"media": str(src), "in": 1.0, "out": 5.0, "start": 10.0}]}]}
+    assert split_at_cuts(project, tl) == 1
+    v = tl["tracks"][0]["clips"]
+    assert [(c["in"], c["out"], c["start"]) for c in v] == [(1.0, cuts[0], 10.0), (cuts[0], 5.0, 10.0 + cuts[0] - 1.0)]
+    assert "transition_in" in v[0] and "transition_in" not in v[1]
+    assert len(tl["tracks"][1]["clips"]) == 1  # the voice stays one clip
+    # a cut 0.2 s after the clip's head: no split (too short a shot), but reported as a flash frame
+    tl["tracks"][0]["clips"] = [{"media": str(src), "in": 2.8, "out": 5.0, "start": 0.0}]
+    flashes = []
+    assert split_at_cuts(project, tl, flashes=flashes) == 0
+    assert len(flashes) == 1 and "head" in flashes[0]
+
+
+def test_subtitles_from_lines_keeps_written_lines(project, tmp_path):
+    """Hand-polished caption lines stay as written: from_lines split "eu falo, e é bom," at its comma into
+    a 0.2 s flash (2026-10-10). Only lines too long for the screen are chunked."""
+    from editassist import subtitles
+
+    T.save(project, T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.0, "out": 6.0}]))
+    f = tmp_path / "lines.json"
+    f.write_text(json.dumps([
+        {"start": 0.0, "end": 1.0, "text": "eu falo, e é bom,"},
+        {"start": 1.0, "end": 5.0, "text": "uma frase longa demais pra caber numa só linha da legenda, então quebra"}]))
+    subtitles.from_lines(project, str(f), "t")
+    lines = read_json_(project.path("work", "captions_t.json"))["lines"]
+    assert " ".join(w["word"] for w in lines[0]["words"]) == "eu falo, e é bom,"
+    assert len(lines) >= 3 and all(len(l["words"]) <= 7 for l in lines[1:])
+
+
+def read_json_(p):
+    return json.loads(Path(p).read_text(encoding="utf-8"))
+
+
+def test_zoom_transition_whips_both_sides_of_the_cut(project):
+    """`ea transition --type zoom`: the outgoing clip zooms into the cut, the incoming lands from the zoom
+    (blurred), rendered by videofx so bake carries it to NLEs without keyframes; the middle of each clip
+    is untouched."""
+    from editassist import transitions
+    from editassist.videofx import clip_vfilter
+
+    T.save(project, T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.0, "out": 2.0},
+                                               {"media": "input/cam_a.mp4", "in": 5.0, "out": 7.0}]))
+    rep = transitions.set_at(project, [2.0], kind="zoom", dur=0.25, tracks=("V1",))
+    v = T.track(T.load(project), "V1")["clips"]
+    assert rep["set"] == 2 and v[0]["whip"] == {"out": 0.25} and v[1]["whip"] == {"in": 0.25}
+
+    def frame(c, t):
+        chain = ",".join(clip_vfilter(project, c, 320, 180, 30))
+        r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{c['in']:.3f}", "-t", f"{c['out'] - c['in']:.3f}",
+                            "-i", str(project.abs(c["media"])), "-vf", f"{chain},select='gte(t,{t})'",
+                            "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                           capture_output=True, cwd=project.dir, check=True)
+        return r.stdout
+
+    import numpy as np
+
+    def diff(c, t):
+        plain = {k: x for k, x in c.items() if k != "whip"}
+        a, b = (np.frombuffer(frame(x, t), np.uint8).astype(int) for x in (c, plain))
+        return float(np.abs(a - b).mean())
+
+    assert diff(v[0], 1.0) < 2  # middle: the same picture (a resample apart)
+    assert diff(v[0], 1.95) > 10  # last frames: zoomed and blurred
+    assert diff(v[1], 0.0) > 10
+    assert transitions.clear(project)["cleared"] == 2
+
+
+def test_resolve_native_subtitles_start_at_the_timeline_start(project):
+    """An .srt appended to a timeline lands at the playhead: one left at 01:06 by a frame grab put every
+    caption of a 68 s reel after its end (2026-10-10). The build parks the playhead at the start first."""
+    from editassist import resolve_native
+
+    srt = project.path("output", "t.srt")
+    srt.parent.mkdir(exist_ok=True)
+    srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nOi\n", encoding="utf-8")
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0, "out": 1}])
+    rp = _fake_resolve()
+    rep = resolve_native.build(project, tl, rp, "subs v1", srt=srt)
+    assert rep["subtitles"] and not rep["failed"]
+    assert rp.mp.tl.subs == [86400]
+    # the playhead move ignored once: the misplaced cues are deleted and placed again
+    rp = _fake_resolve()
+    real = type(rp.mp).CreateEmptyTimeline
+
+    def create(self, name):
+        t = real(self, name)
+        t.stale = 1
+        return t
+    type(rp.mp).CreateEmptyTimeline = create
+    try:
+        rep = resolve_native.build(project, tl, rp, "subs v2", srt=srt)
+    finally:
+        type(rp.mp).CreateEmptyTimeline = real
+    assert rp.mp.tl.subs == [86400] and not rep["failed"]
+
+
+def test_bake_to_a_folder_outside_the_project(project, tmp_path):
+    """`ea bake --to <dir>`: baked clips land next to the client's media (the NLE project must not depend
+    on this repo), the timeline and catalog point there with absolute paths."""
+    from editassist.bake import bake
+
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0.0, "out": 1.0}])
+    T.track(tl, "V1")["clips"][0]["zoom"] = {"scale": 1.2, "x": .5, "y": .5}
+    T.save(project, tl)
+    dst = tmp_path / "drive" / "clips"
+    assert bake(project, to=str(dst))["baked"] == 1
+    c = T.track(T.load(project), "V1")["clips"][0]
+    assert Path(c["media"]).parent == dst.resolve() and Path(c["media"]).exists()
+    assert not list(project.path("work", "baked").glob("*.mp4")) if project.path("work", "baked").exists() else True
+
+
+def test_level_measures_sfx_shorter_than_one_loudness_block(project):
+    """Flip-clock clicks (0.1-0.25 s) read as silent under R128's 400 ms blocks and kept no gain."""
+    from editassist.levels import level, segment_lufs
+
+    click = project.path("input", "click.wav")
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=f=2000:d=0.15", "-af", "volume=-6dB",
+                    str(click)], check=True)
+    tl = T.new(project)
+    T.track(tl, "SFX", "audio")["clips"].append({"media": "input/click.wav", "in": 0, "out": 0.15, "start": 1.0})
+    T.save(project, tl)
+    rep = level(project)
+    c = T.track(T.load(project), "SFX")["clips"][0]
+    assert not any(r.get("silent") for r in rep["clips"])
+    assert segment_lufs(project, c) + c["gain_db"] == pytest.approx(-22, abs=0.3)
+
+
+def test_motion_stages_image_props_for_remotion(tmp_path):
+    """A logo / symbol prop given as a file path is copied where Remotion can serve it."""
+    from editassist.motion import stage_image
+
+    img = tmp_path / "ea_test_logo.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n")
+    try:
+        assert stage_image(str(img)) == "user-media/ea_test_logo.png"
+        assert (ROOT / "assets" / "user-media" / "ea_test_logo.png").exists()
+        assert stage_image("dias para o novo EP") == "dias para o novo EP"
+        assert stage_image(3) == 3
+    finally:
+        (ROOT / "assets" / "user-media" / "ea_test_logo.png").unlink(missing_ok=True)
+
+
+def test_remotion_countdown(project):
+    from editassist.motion import render_motion
+
+    T.save(project, T.new(project))
+    r = render_motion(project, "Countdown", {"from": 5, "to": 3, "lines": ["dias para o _novo EP_", "do (Dom Cast)"],
+                                             "width": 360, "height": 640, "fps": 10}, seconds=1)
+    assert project.path(r["path"]).exists()
+
+
+def test_remotion_save_the_date(project):
+    from editassist.motion import render_motion
+
+    T.save(project, T.new(project))
+    r = render_motion(project, "SaveTheDate", {"day": 21, "month": 10, "year": 2026,
+                                               "width": 360, "height": 640, "fps": 10}, seconds=1)
+    assert project.path(r["path"]).exists()
+
+
+def test_render_keeps_true_peak_after_aac_overshoot(tmp_path):
+    """Clicks mixed to -1 dBTP came out of the AAC encoder at +0.7 dBTP (countdown teaser); the loudness
+    trim re-measures the encoded file and cuts more until the peak fits."""
+    from editassist.render import measure, trim_loudness
+
+    f = tmp_path / "clicks.mp4"
+    clicks = "aevalsrc='if(lt(mod(t\\,0.13)\\,0.004)\\,0.5*sgn(sin(2*PI*3000*t))\\,0)':s=48000:d=4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", clicks, "-f", "lavfi", "-i", "color=c=gray:s=64x64:d=4",
+                    "-shortest", "-c:a", "aac", "-b:a", "192k", "-c:v", "libx264", str(f)], check=True)
+    trim_loudness(f, -14, -1.0)
+    assert measure(f)[1] <= -1.0

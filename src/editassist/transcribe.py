@@ -69,6 +69,43 @@ def uncovered_speech(audio, segs: list[dict], min_len: float = 1.0) -> list[tupl
     return gaps
 
 
+def windows(duration: float, head: float | None = None, tail: float | None = None,
+            spans: list[tuple[float, float]] | None = None) -> list[tuple[float, float]]:
+    """Source-time stretches to transcribe: the whole clip, or only its first `head` and last `tail`
+    seconds and/or given (start, end) spans (finding where a long recording really starts, ends or
+    could be split without transcribing hours). Overlapping stretches are merged."""
+    if not head and not tail and not spans:
+        return [(0.0, duration)]
+    out = [(max(0.0, float(a)), min(float(b), duration)) for a, b in spans or [] if a < duration]
+    if head:
+        out.append((0.0, min(head, duration)))
+    if tail:
+        out.append((max(0.0, duration - tail), duration))
+    merged: list[tuple[float, float]] = []
+    for a, b in sorted(out):
+        if merged and a <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+        else:
+            merged.append((a, b))
+    return merged
+
+
+def missing(want: list[tuple[float, float]], have: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Parts of `want` not already inside `have` (stretches still to transcribe)."""
+    out = []
+    for a, b in want:
+        cur = a
+        for x, y in sorted(have):
+            if y <= cur or x >= b:
+                continue
+            if x > cur:
+                out.append((cur, x))
+            cur = max(cur, y)
+        if b - cur > 0.5:
+            out.append((cur, b))
+    return out
+
+
 def fmt_ts(t: float) -> str:
     m, s = divmod(t, 60)
     h, m = divmod(int(m), 60)
@@ -76,7 +113,9 @@ def fmt_ts(t: float) -> str:
 
 
 def transcribe(project: Project, model: str | None = None, language: str | None = None,
-               only: list[str] | None = None, force: bool = False) -> list[str]:
+               only: list[str] | None = None, force: bool = False,
+               head: float | None = None, tail: float | None = None,
+               spans: list[tuple[float, float]] | None = None) -> list[str]:
     catalog = media_by_id(project)
     language = language or project.settings.get("language")
     model = model or os.environ.get("EA_WHISPER_MODEL", "large-v3-turbo")
@@ -92,30 +131,58 @@ def transcribe(project: Project, model: str | None = None, language: str | None 
         if not m.get("analysis_audio"):
             continue
         out = project.path("work", "transcripts", f"{sid}.json")
-        if out.exists() and not force:
-            done.append(sid)
+        prev = read_json(out) if out.exists() and not force else None
+        if prev is not None and not prev.get("windows"):
+            done.append(sid)  # a whole transcript already covers any window
             continue
+        dur = m["duration"]
+        spans_ = windows(dur, head, tail, spans)
+        whole = spans_ == [(0.0, dur)]
+        todo = spans_
+        if prev is not None:  # partial transcript: add only the stretches it lacks
+            have = [tuple(w) for w in prev["windows"]]
+            todo = missing(spans_, have)
+            if not todo:
+                done.append(sid)
+                continue
+            whole = False
+            spans_ = windows(dur, spans=have + todo)
         whisper = whisper or _model(model)
-        print(f"transcribing {sid} ({m['duration']:.0f}s) with {model} ...", flush=True)
         audio = _load_wav(project.abs(m["analysis_audio"]))
-        segments, info = whisper.transcribe(
-            audio, language=language, word_timestamps=True,
-            vad_filter=True, condition_on_previous_text=False, hotwords=hot,
-        )
-        segs = []
-        for s in segments:
-            segs.append({
-                "start": round(s.start, 3), "end": round(s.end, 3), "text": s.text.strip(),
-                "words": [{"start": round(w.start, 3), "end": round(w.end, 3), "word": w.word.strip(),
-                           "prob": round(w.probability, 3)} for w in (s.words or [])],
-            })
+        part = "" if whole else " (" + ", ".join(f"{fmt_ts(a)}-{fmt_ts(b)}" for a, b in todo) + ")"
+        print(f"transcribing {sid} ({dur:.0f}s){part} with {model} ...", flush=True)
+        segs = list(prev["segments"]) if prev else []
+        missed = [tuple(x) for x in prev.get("possibly_missed", [])] if prev else []
+        lang = language
+        for a, b in todo:  # times stay in source seconds whatever the window
+            chunk = audio[int(a * 16000):int(b * 16000)]
+            segments, info = whisper.transcribe(
+                chunk, language=language, word_timestamps=True,
+                vad_filter=True, condition_on_previous_text=False, hotwords=hot,
+            )
+            lang = info.language
+            chunk_segs = []
+            for s in segments:
+                chunk_segs.append({
+                    "start": round(a + s.start, 3), "end": round(a + s.end, 3), "text": s.text.strip(),
+                    "words": [{"start": round(a + w.start, 3), "end": round(a + w.end, 3), "word": w.word.strip(),
+                               "prob": round(w.probability, 3)} for w in (s.words or [])],
+                })
+            local = [{"words": [{"start": w["start"] - a, "end": w["end"] - a} for w in sg["words"]],
+                      "start": sg["start"] - a, "end": sg["end"] - a} for sg in chunk_segs]
+            missed += [(round(x + a, 2), round(y + a, 2)) for x, y in uncovered_speech(chunk, local)]
+            segs += chunk_segs
+        segs.sort(key=lambda sg: sg["start"])
+        missed.sort()
         fixed = vocab.fix_transcript({"segments": segs}, dictionary["fixes"])  # <memory>/vocabulary.md
-        missed = uncovered_speech(audio, segs)
         if missed:
             print(f"  warning {sid}: speech-like audio with no words at {missed}; "
                   f"listen there or re-run with --force --model large-v3", flush=True)
-        write_json(out, {"media": sid, "language": info.language, "model": model, "segments": segs,
-                         "possibly_missed": missed, "vocab_fixes": fixed})
+        doc = {"media": sid, "language": lang, "model": model, "segments": segs,
+               "possibly_missed": missed, "vocab_fixes": fixed}
+        if part:  # partial transcript: only these source stretches were heard
+            doc["windows"] = [[round(a, 3), round(b, 3)] for a, b in spans_]
+        write_json(out, doc)
         write_txt(out.with_suffix(".txt"), segs)
         done.append(sid)
     return done

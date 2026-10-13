@@ -2,6 +2,8 @@ import React from "react";
 import { CalculateMetadataFunction, Composition } from "remotion";
 import "./fonts";
 import { Captions, CaptionsProps } from "./Captions";
+import { Countdown, CountdownProps } from "./Countdown";
+import { SaveTheDate, SaveTheDateProps } from "./SaveTheDate";
 import { LowerThird, LowerThirdProps } from "./LowerThird";
 import { Title, TitleProps } from "./Title";
 
@@ -56,6 +58,27 @@ export const Root: React.FC = () => (
       width={1920}
       height={1080}
       defaultProps={{ text: "Chapter title", kicker: "PART 1", accent: "#FFE500" } satisfies TitleProps & Frame}
+    />
+    <Composition
+      id="Countdown"
+      component={Countdown as React.FC<any>}
+      calculateMetadata={meta as any}
+      durationInFrames={210}
+      fps={30}
+      width={1080}
+      height={1920}
+      defaultProps={{ kicker: "FALTAM", from: 9, to: 3, lines: ["dias para o _novo EP_", "do (Dom Cast)"],
+                      durationInSeconds: 7 } satisfies CountdownProps & Frame}
+    />
+    <Composition
+      id="SaveTheDate"
+      component={SaveTheDate as React.FC<any>}
+      calculateMetadata={meta as any}
+      durationInFrames={240}
+      fps={30}
+      width={1080}
+      height={1920}
+      defaultProps={{ day: 21, month: 10, year: 2026, durationInSeconds: 8 } satisfies SaveTheDateProps & Frame}
     />
   </>
 );

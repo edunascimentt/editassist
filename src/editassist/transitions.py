@@ -4,7 +4,7 @@ from __future__ import annotations
 from . import timeline as T
 from .project import Project
 
-TYPES = ("dissolve", "dip", "fade")
+TYPES = ("dissolve", "dip", "fade", "zoom")
 
 
 def set_at(project: Project, times: list[float] | None, kind: str = "dissolve", dur: float = 0.5,
@@ -14,6 +14,19 @@ def set_at(project: Project, times: list[float] | None, kind: str = "dissolve", 
     tl = T.load(project)
     cuts = T.cut_points(tl, tracks[0])
     targets = cuts if all_cuts else [min(cuts, key=lambda c: abs(c - t)) for t in (times or []) if cuts]
+    if kind == "zoom":  # picture only: a zoom-through over a hard cut (whip on both clips, baked)
+        v = sorted(T.track(tl, tracks[0])["clips"], key=lambda c: c["start"])
+        n = 0
+        for t in targets:
+            for c in v:
+                if abs(c["start"] - t) < 1.5 / tl["fps"]:
+                    c["whip"] = {**c.get("whip", {}), "in": dur}
+                    n += 1
+                elif abs(T.end(c) - t) < 1.5 / tl["fps"]:
+                    c["whip"] = {**c.get("whip", {}), "out": dur}
+                    n += 1
+        T.save(project, tl)
+        return {"set": n, "cuts": [round(t, 3) for t in targets], "warnings": []}
     n = 0
     for name in tracks:
         for c in T.track(tl, name)["clips"]:
@@ -52,6 +65,6 @@ def clear(project: Project) -> dict:
     n = 0
     for tr in tl["tracks"]:
         for c in tr["clips"]:
-            n += bool(c.pop("transition_in", None)) + bool(c.pop("transition_out", None))
+            n += bool(c.pop("transition_in", None)) + bool(c.pop("transition_out", None)) + bool(c.pop("whip", None))
     T.save(project, tl)
     return {"cleared": n}

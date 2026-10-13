@@ -18,11 +18,13 @@ from .project import Project, write_json
 SHEET_COLS, SHEET_ROWS, THUMB_W = 5, 4, 320
 
 
-def cut_times(src: str, threshold: float) -> list[float]:
-    """Shot changes via ffmpeg's scene score (0..1) on a downscaled stream: no extra libraries."""
-    res = run(["ffmpeg", "-hide_banner", "-v", "info", "-i", src, "-an", "-vf",
+def cut_times(src: str, threshold: float, t0: float | None = None, t1: float | None = None) -> list[float]:
+    """Shot changes via ffmpeg's scene score (0..1) on a downscaled stream: no extra libraries.
+    `t0`/`t1`: only that source stretch (times stay in source seconds)."""
+    span = (["-ss", f"{t0:.3f}"] if t0 else []) + (["-t", f"{t1 - (t0 or 0):.3f}"] if t1 else [])
+    res = run(["ffmpeg", "-hide_banner", "-v", "info", *span, "-i", src, "-an", "-vf",
                f"scale=320:-2,select='gt(scene,{threshold})',showinfo", "-f", "null", "-"])
-    return [float(x) for x in re.findall(r"pts_time:([\d.]+)", res.stderr)]
+    return [float(x) + (t0 or 0) for x in re.findall(r"pts_time:([\d.]+)", res.stderr)]
 
 
 VIEW_LOG = "eq=contrast=1.35:saturation=1.5:gamma=0.9"  # flat log footage is hard to read in a thumbnail

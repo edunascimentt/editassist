@@ -1,6 +1,10 @@
 """beats: tempo and beat times of a music track (the model can't listen, so it reads these).
 
-work/beats/<id>.json  {"bpm": 120.2, "beats": [s...], "downbeats": [s...], "confidence": 0..1}
+work/beats/<id>.json  {"bpm": 120.2, "beats": [s...], "downbeats": [s...], "confidence": 0..1, "end": s}
+
+`end` = the track's natural end: where the last note has rung out (40 dB under its loud parts), before
+any trailing digital silence. Builders start the music at `end - video length` so the ending lands
+on the last frame; the file's duration left 3 s of silence under an end card (2026-10-09).
 
 Onset envelope from spectral flux (numpy STFT), tempo from its autocorrelation with a prior around
 110 BPM, beats by dynamic programming (Ellis 2007), downbeats as the strongest 4-beat phase.
@@ -103,6 +107,21 @@ def track_beats(env, period: float, tightness: float = 100.0):
     return np.array(beats[::-1])
 
 
+def natural_end(y, floor_db: float = 40.0, win: float = 0.25) -> float:
+    """Seconds where the music has rung out: last window within `floor_db` of its loud (p90) level."""
+    import numpy as np
+
+    n = int(SR * win)
+    k = len(y) // n
+    if k == 0:
+        return round(len(y) / SR, 3)
+    rms = np.sqrt(np.mean(y[:k * n].reshape(k, n) ** 2, 1) + 1e-12)
+    db = 20 * np.log10(rms)
+    loud = np.percentile(db, 90)
+    on = np.nonzero(db > loud - floor_db)[0]
+    return round(float((on[-1] + 1) * win) if len(on) else len(y) / SR, 3)
+
+
 def detect_file(path: str) -> dict:
     """Tempo, beats and downbeats (seconds) of any audio/video file."""
     import numpy as np
@@ -123,11 +142,21 @@ def detect_file(path: str) -> dict:
     # downbeat phase: which of the 4 offsets carries the most kick energy
     strength = [float(np.sum(low[idx[p::4]])) for p in range(4)] if len(idx) >= 8 else [1, 0, 0, 0]
     phase = int(np.argmax(strength))
-    return {"bpm": round(float(bpm), 2), "confidence": round(conf, 3), "beats": beats, "downbeats": beats[phase::4]}
+    return {"bpm": round(float(bpm), 2), "confidence": round(conf, 3), "beats": beats, "downbeats": beats[phase::4],
+            "end": natural_end(y)}
 
 
 def detect(project: Project, sid: str) -> dict:
-    m = media_by_id(project)[sid]
+    """Beats of a registered media id, or of a music file path (registered as music on the way)."""
+    catalog = read_json(project.path("work", "media.json"), {}) or {}
+    if sid not in catalog:
+        from pathlib import Path
+        if not Path(sid).is_file():
+            raise SystemExit(f"unknown media {sid!r}: pass a media id from work/media.json or a music file path")
+        from .generate import register_file
+        sid = register_file(project, sid, kind="music")["id"]
+        catalog = media_by_id(project)
+    m = catalog[sid]
     res = {"media": sid, **detect_file(str(project.abs(m["path"])))}
     write_json(project.path("work", "beats", f"{sid}.json"), res)
     return {k: (v if k not in ("beats", "downbeats") else f"{len(v)} times") for k, v in res.items()} | {

@@ -10,7 +10,9 @@ What 21.0's API can't do, and how it is handled:
   timeline (the camera S&Q workflow), or sped up 2x as 119.88 in a 59.94 timeline. Full quality, the
   original media stays linked. One pool copy per (file, rate), in editassist/speed <rate>.
   Any other speed needs `ea bake` first.
-- zoom: centred punch-ins set ZoomX/ZoomY on the item; an off-centre zoom is reported.
+- zoom: punch-ins set ZoomX/ZoomY, an off-centre focus also Pan/Tilt (clamped so no edge shows, like
+  the render's crop); a push-in (ramp) is reported.
+- crop (ea reformat): Zoom + Pan/Tilt on the item, as the user frames vertical cuts by hand; no bake.
 - clip gain / audio fades: audio items expose no Volume property and there is no SetFades, so audio
   clips with a gain or fade are placed as rendered copies with both applied (bake.gain_copies).
 - fades / dips: no SetFades (21.1+); reported.
@@ -171,6 +173,37 @@ def _from_template(rp, template: str, name: str):
     return dup
 
 
+def _first_cue_frame(srt: Path, fps: float) -> int:
+    """Record frame (from the timeline start) of the first cue in an .srt."""
+    m = re.search(r"(\d+):(\d+):(\d+)[,.](\d+)\s*-->", srt.read_text(encoding="utf-8"))
+    return round((int(m[1]) * 3600 + int(m[2]) * 60 + int(m[3]) + int(m[4]) / 1000) * fps) if m else 0
+
+
+def zoom_offset(z: dict, w: int, h: int) -> tuple[float, float]:
+    """Resolve Pan/Tilt (timeline pixels; Pan + = right, Tilt + = up) giving the same window as `ea render`,
+    which crops the scaled frame at `(scaled - frame) * x` (x, y: 0..1 of the spare picture, 0.5 = centred).
+    Off-centre zooms used to be built centred in Resolve, unlike the approved preview (2026-10-09)."""
+    s = float(z.get("scale", 1))
+    if s <= 1:
+        return 0.0, 0.0
+    return (round((s - 1) * w * (0.5 - float(z.get("x", .5))), 1),
+            round((s - 1) * h * (float(z.get("y", .5)) - 0.5), 1))
+
+
+def crop_transform(crop: dict, sw: int, sh: int, w: int, h: int, z: dict | None = None) -> tuple[float, float, float]:
+    """Resolve Zoom, Pan, Tilt showing crop box `crop` (source pixels) of a sw x sh clip filling a w x h
+    timeline, the way the user frames vertical cuts (Zoom ~3.16 + Pan on a 16:9 clip in 9:16), so a
+    reformatted timeline needs no `ea bake`. Resolve first scales the clip to fit the frame; a punch-in
+    `z` on top scales around the frame centre, like the render (crop first, then zoom)."""
+    k = max(w / crop["w"], h / crop["h"])  # timeline pixels per source pixel
+    fit = min(w / sw, h / sh)
+    pan = -(crop["x"] + crop["w"] / 2 - sw / 2) * k
+    tilt = (crop["y"] + crop["h"] / 2 - sh / 2) * k
+    s = float((z or {}).get("scale", 1))
+    zp, zt = zoom_offset(z, w, h) if z else (0.0, 0.0)
+    return round(k / fit * s, 4), round(pan * s + zp, 1), round(tilt * s + zt, 1)
+
+
 def build(project: Project, tl: dict, rp, name: str, srt: Path | None = None, folder_name: str = "editassist",
           template: str | None = None) -> dict:
     """Create timeline `name` in Resolve project `rp` from `tl`. Returns a report dict.
@@ -317,12 +350,28 @@ def build(project: Project, tl: dict, rp, name: str, srt: Path | None = None, fo
                     else:
                         report["notes"].append(f"{Path(p).name} @{c['start']:.2f}s: stabilize by hand (Inspector)")
                 z = c.get("zoom") if kind == "video" else None
-                if z and z.get("scale", 1) != 1:
-                    if z.get("ramp") or abs(z.get("x", .5) - .5) > .01 or abs(z.get("y", .5) - .5) > .01:
-                        report["notes"].append(f"{Path(p).name} @{c['start']:.2f}s: push-in / off-centre zoom "
-                                               f"{z} to set by hand (centred ZoomX/Y set)")
+                if kind == "video" and c.get("whip"):
+                    report["notes"].append(f"{Path(p).name} @{c['start']:.2f}s: zoom transition "
+                                           f"needs `ea bake` first (Resolve 21.0 scripting has no keyframes)")
+                if kind == "video" and c.get("crop") and m.get("width"):
+                    zoom, pan, tilt = crop_transform(c["crop"], m["width"], m["height"], tl["width"], tl["height"], z)
+                    if not all(it.SetProperty(k, v) for k, v in
+                               (("ZoomX", zoom), ("ZoomY", zoom), ("Pan", pan), ("Tilt", tilt))):
+                        report["failed"].append(f"crop on {Path(p).name} @{c['start']:.2f}s: Zoom {zoom}, "
+                                                f"Position {pan:+.0f}, {tilt:+.0f}")
+                    report["crops"] = report.get("crops", 0) + 1
+                    if z and z.get("ramp"):
+                        report["notes"].append(f"{Path(p).name} @{c['start']:.2f}s: push-in {z} to keyframe by hand")
+                elif z and z.get("scale", 1) != 1:
+                    if z.get("ramp"):
+                        report["notes"].append(f"{Path(p).name} @{c['start']:.2f}s: push-in {z} to keyframe by hand "
+                                               f"(final framing set)")
                     if it.SetProperty("ZoomX", float(z["scale"])) and it.SetProperty("ZoomY", float(z["scale"])):
                         report["zooms"] += 1
+                    pan, tilt = zoom_offset(z, tl["width"], tl["height"])
+                    if (pan or tilt) and not (it.SetProperty("Pan", pan) and it.SetProperty("Tilt", tilt)):
+                        report["notes"].append(f"{Path(p).name} @{c['start']:.2f}s: set Position {pan:+.0f}, "
+                                               f"{tilt:+.0f} by hand")
                 if kind == "audio" and c.get("gain_db") and not it.SetProperty("Volume", c["gain_db"]):
                     gains.append(f"{t['name']} @{c['start']:.2f}s {c['gain_db']:+g} dB")
                 if c.get("transition_in") or c.get("transition_out"):
@@ -342,7 +391,22 @@ def build(project: Project, tl: dict, rp, name: str, srt: Path | None = None, fo
         if sub:
             if not tlo.GetTrackCount("subtitle"):
                 tlo.AddTrack("subtitle")
-            report["subtitles"] = bool(mp.AppendToTimeline([sub]))
+            # an .srt lands at the PLAYHEAD, not at the timeline start: a frame grab left at 01:06 put every
+            # caption after the end of a 68 s reel (2026-10-10). Park the playhead at the start first.
+            # Right after the build the playhead move does not always take (a fresh template copy kept the
+            # template's 01:06), so check where the cues landed and place them again once if they moved.
+            want_first = start0 + _first_cue_frame(fresh, fps)
+            for attempt in range(2):
+                tlo.SetCurrentTimecode(tlo.GetStartTimecode())
+                report["subtitles"] = bool(mp.AppendToTimeline([sub]))
+                placed = tlo.GetItemListInTrack("subtitle", 1) or []
+                first = min((i.GetStart() for i in placed), default=None)
+                if first is None or abs(first - want_first) <= 2:
+                    break
+                tlo.DeleteClips(placed, False)
+            else:
+                report["failed"].append(f"subtitles landed at frame {first - start0}, not {want_first - start0}: "
+                                        f"delete them, put the playhead at the start, import {fresh.name} again")
     if gains:
         report["notes"].append("set these clip gains in Resolve (21.0's API has no audio volume): " + "; ".join(gains))
     if fades:

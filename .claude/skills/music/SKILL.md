@@ -12,7 +12,8 @@ description: Background music bed (ElevenLabs music generation or a track the us
    Delivered tracks are often pre-mixed quiet (bed already at -24 dB): measure, then normalise a copy
    (`ffmpeg -i in.wav -af loudnorm=I=-14:TP=-1.5 work/music/x.wav`) and register that.
    Choose where the music STARTS so its natural ending lands on the video's end (`ea beats`: start on a
-   downbeat, end = start + video length = file end); a fade-out on a cut-off track is the fallback.
+   downbeat, end = start + video length = the track's natural end, `end` in work/beats/<id>.json, NOT the
+   file duration: files often carry seconds of trailing silence); a fade-out on a cut-off track is the fallback.
 2. Generate: `uv run ea music <p> "prompt" --seconds <timeline length + 5>` (instrumental unless
    `--vocals`). Or the user's own file: `uv run ea register <p> <file> --kind music`.
 3. Add a track to timeline.json:
