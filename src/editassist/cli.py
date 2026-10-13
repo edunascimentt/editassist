@@ -146,6 +146,16 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--y", type=float, help="caption centre, 0..1 from the top")
     p.add_argument("--no-stroke", action="store_true"); p.add_argument("--shadow", action="store_true")
 
+    p = sub.add_parser("resolve-subs", help="re-break the captions on open Resolve timelines to a max line length "
+                                            "(text kept, long cues split on word times)")
+    p.add_argument("timelines", nargs="*", help="timeline names in the open Resolve project")
+    p.add_argument("--match", help="regex: also every timeline whose name matches, e.g. 'CORTE \\d$'")
+    p.add_argument("--project", help="editassist project whose transcripts time the split cues")
+    p.add_argument("--out", required=True, help="folder for the new .srt files")
+    p.add_argument("--max-chars", type=int, default=15); p.add_argument("--max-lines", type=int, default=2)
+    p.add_argument("--dry-run", action="store_true", help="write the .srt files, change nothing in Resolve")
+    p.add_argument("--restore", action="store_true", help="undo: put back the cues saved in <out>/antes/ by a run")
+
     p = sub.add_parser("transcript", help="transcript of the EDITED video on timeline time (chapters, notes, translation)")
     p.add_argument("project")
 
@@ -451,6 +461,11 @@ def main(argv: list[str] | None = None) -> None:
             out({"closed_seconds": closed, "length": round(T.length(tl), 3)})
         else:
             out(T.summary(tl))
+    elif a.cmd == "resolve-subs":
+        from .resolve_subs import run
+        if not a.timelines and not a.match:
+            raise SystemExit("name the timelines or pass --match")
+        out(run(a.timelines, a.match, Path(a.out).expanduser(), a.project, a.max_chars, a.max_lines, a.dry_run, a.restore))
     elif a.cmd == "subtitles":
         from .subtitles import build, from_lines
         pr = Project(a.project)

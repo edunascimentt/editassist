@@ -14,6 +14,7 @@
 - [people.md](people.md) — roles: owner, collaborator
 - [decisions.md](decisions.md) — append-only: engine design, timeline format, bundling, bake, Higgsfield, Resolve MCP, memory tiers, client prefs
 
+- **2026-10-13 (3):** `ea resolve-subs`: re-break captions on live Resolve timelines to a max line length (podcast cortes: 15 chars x 2 lines); Resolve cue line break = U+2028, relative ImportMedia paths place nothing, subtitle style y is from the bottom.
 - **2026-10-13 (2):** Premiere bridge full pass (90/90 live MCP checks): LUT/speed/whip as rendered copies, captions as alpha layer + .srt, push-in Position keyframes, offline relink, ripple with linked halves, `ea premiere export`; `ea render` push-in + letterbox bugs fixed.
 - **2026-10-13:** Premiere live bridge: UXP panel (`premiere_uxp/`) + hub/MCP (`ea premiere-mcp`, `ea premiere …`), timeline.json built live as a sequence (`premiere_native`), premiere-live skill; verified live on macOS Premiere 26.3.2 (frame-exact cuts, framing = ea render, fades, live ops).
 - **BUILT (2026-10-01):** full pipeline + 28 skills + tests/CI. **2026-10-02:** Resolve MCP, memory-os, product-launch skill (`templates/launch/`, `ea launch`).

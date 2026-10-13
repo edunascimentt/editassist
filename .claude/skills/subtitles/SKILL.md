@@ -14,6 +14,12 @@ description: Captions synced to the EDITED timeline. SRT for the NLE, styled ASS
   --y <0..1 from top> [--no-stroke] [--shadow]` (saved in work/caption_style.json). In Resolve the
   look lives on the subtitle TRACK and no API sets it: build with `ea export --open --current
   --template "<a timeline whose subtitle track the user already styled>"` (export-nle).
+- Captions already on a Resolve timeline (made by hand or by an earlier pass) too long per line:
+  `uv run ea resolve-subs "<timeline>" [--match '<regex>'] --project <p> --out projects/<p>/output/<folder>
+  [--max-chars 15 --max-lines 2] [--dry-run]` re-breaks them in place (text kept, split cues timed from
+  the transcripts, originals saved in `<out>/antes/`, `--restore` puts them back). Resolve never wraps a
+  cue: 9:16 needs ~15 chars per line to stay off the edges and the Instagram buttons. Read the client's
+  preferences for the line count (some clients refuse two-line captions: `--max-lines 1`). Check a burn-in render.
 - Run AFTER the cut is final: captions are remapped from source words through timeline.json; re-run
   after any edit.
 - `clean`: bottom, sentence case (YouTube). `bold`: centre, uppercase, highlighted word (shorts).
