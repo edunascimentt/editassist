@@ -13,6 +13,12 @@ Premiere/AE users load the same file.
    `/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/` and its `Custom/`; creative
    ones made for that camera, e.g. "S-Log3-Sg3Cine", beat the neutral Sony conversion). Then
    `uv run ea color <p> --lut <file.cube>` (no frame analysis: fast) and `--compare` two or three clips.
+   Phone HDR (`hdr: "hlg"` / `"pq"` in `work/media.json`; iPhones record HLG by default) is treated
+   the same way: `ea render` and a Rec.709 Resolve timeline show it flat and grey without a conversion.
+   Use the user's own HLG-to-SDR 3D LUT when they have one (Resolve `LUT/Custom/`, e.g.
+   `FiLMiC_deHLG_V3.cube` in the 10-bit iOS pack; verified on iPhone HLG 2026-10-13, better contrast and
+   skin than the raw HLG) via `--lut`. Resolve's own `HDR Hybrid Log-Gamma/HLG to Gamma 2.4.cube` is a
+   1D LUT, which `ea color` cannot load.
 1. Correct: `uv run ea color <p> --auto [--media id1 id2] [--strength 0.7]`. Grey-world balance and
    levels, deliberately gentle.
 2. Match cameras: `uv run ea color <p> --match <reference id> --media <others>`. Pick as reference the

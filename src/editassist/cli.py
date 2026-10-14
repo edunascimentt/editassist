@@ -137,6 +137,7 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("subtitles", help="captions on the edited timeline (.srt + styled .ass)")
     p.add_argument("project"); p.add_argument("--style", default="clean", choices=["clean", "bold", "boxed"])
     p.add_argument("--max-words", type=int, default=4); p.add_argument("--no-karaoke", action="store_true")
+    p.add_argument("--max-chars", type=int, help="one-line captions of at most N characters (long words hyphenated)")
     p.add_argument("--lines", help="timed text json [{start,end,text}] (e.g. a translation) instead of the transcript")
     p.add_argument("--name", help="output base name, e.g. <project>_en")
     p.add_argument("--fix", action="extend", nargs="+", default=[], help='vocabulary fix "heard=right", repeatable')
@@ -483,7 +484,7 @@ def main(argv: list[str] | None = None) -> None:
                 raise SystemExit("--lines needs --name (e.g. <project>_en)")
             out(from_lines(pr, a.lines, a.name, a.style))
         else:
-            out(build(pr, a.style, a.max_words, not a.no_karaoke, a.name, a.fix))
+            out(build(pr, a.style, a.max_words, not a.no_karaoke, a.name, a.fix, a.max_chars))
     elif a.cmd == "transcript":
         from .subtitles import transcript
         out(transcript(Project(a.project)))

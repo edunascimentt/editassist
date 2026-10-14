@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -95,6 +96,73 @@ def test_resolve_native_luts_only_from_resolve_lut_folders(project, tmp_path, mo
     assert rep["luts"] == 2 and not rep["failed"]
     assert applied[0] == creative  # the user's own LUT, not our copy of it
     assert applied[1].parent == lut_root / "editassist" / project.dir.name
+
+
+def test_resolve_native_keeps_the_lut_on_baked_clips(project, tmp_path, monkeypatch):
+    """`ea bake` repoints a zoomed clip at work/baked/<file>.mp4 (ungraded unless --color); the native
+    build looked the grade up by that new path and placed 43 of 48 clips of a recap WITHOUT their LUT
+    (2026-10-13). The grade follows the clip's original media; a clip baked with --color gets none."""
+    from editassist import bake, color, resolve_native
+
+    lut_root = tmp_path / "ResolveLUT"
+    creative = lut_root / "Custom" / "look.cube"
+    creative.parent.mkdir(parents=True)
+    creative.write_text("LUT_3D_SIZE 2\n" + "\n".join(f"{r} {g} {b}" for b in (0, 1) for g in (0, 1) for r in (0, 1)))
+    monkeypatch.setattr(resolve_native, "resolve_lut_dirs", lambda: [lut_root])
+    color.grade(project, ["cam_a"], lut=str(creative))
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0, "out": 1}])
+    T.track(tl, "V1")["clips"][0]["zoom"] = {"scale": 1.1, "x": 0.5, "y": 0.5, "ramp": 1.0}
+    T.save(project, tl)
+    bake.bake(project)
+    tl = T.load(project)
+    assert T.track(tl, "V1")["clips"][0]["media"].startswith("work/baked/")
+    rp = _fake_resolve()
+    applied = []
+    monkeypatch.setattr(type(rp.mp.AppendToTimeline([{"srt": 1}])[0]), "SetLUT",
+                        lambda self, node, path: applied.append(Path(path)) or True, raising=False)
+    rep = resolve_native.build(project, tl, rp, "baked v1")
+    assert rep["luts"] == 1 and applied == [creative]
+
+    tl2 = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 1, "out": 2}])
+    T.track(tl2, "V1")["clips"][0]["zoom"] = {"scale": 1.1, "x": 0.5, "y": 0.5, "ramp": 1.0}
+    T.save(project, tl2)
+    bake.bake(project, color=True)  # grade burned in: no LUT on top
+    applied.clear()
+    rep = resolve_native.build(project, T.load(project), _fake_resolve(), "graded v1")
+    assert rep["luts"] == 0
+
+
+def test_resolve_export_always_builds_natively(project, monkeypatch, tmp_path):
+    """Resolve 21.0 suddenly ACCEPTED our OTIO (2026-10-13) and that route was worse than the native
+    build: it imported every clip again into whatever bin the user had selected (duplicates of clips
+    already in their bins), applied no LUT (work/color cubes are outside Resolve's LUT folders) and
+    dropped every clip gain (dialogue 8-12 dB too quiet). `--open` now always builds natively."""
+    import types
+
+    from editassist import export
+
+    rp = _fake_resolve()
+    calls = []
+    rp.mp.ImportTimelineFromFile = lambda *a, **k: calls.append(a) or object()
+    rp.GetName = lambda: "client"
+    rp.GetTimelineByIndex = lambda i: None
+
+    class PM:
+        def SaveProject(self):
+            return True
+
+        def GetCurrentProject(self):
+            return rp
+
+    app = types.SimpleNamespace(GetProjectManager=lambda: PM())
+    monkeypatch.setitem(sys.modules, "DaVinciResolveScript", types.SimpleNamespace(scriptapp=lambda n: app))
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0, "out": 1}])
+    T.track(tl, "A1")["clips"][0]["gain_db"] = 9
+    otio = tmp_path / "x.otio"
+    otio.write_text("{}")
+    res = export.resolve_import(project, tl, otio, into_current=True)
+    assert not calls
+    assert res.startswith("ok (built natively"), res
 
 
 def test_render_has_no_black_frames_at_cuts(project):
@@ -1066,6 +1134,22 @@ def test_captions_break_where_sentences_were_cut_out():
     assert len(group(other)) == 2
 
 
+def test_captions_max_chars_gives_one_short_line_each():
+    """The user's rule (2026-10-13): one-line captions of at most 15 characters, long words hyphenated
+    across two captions. `group` used to carry a clingy word onto the next line past the limit
+    ("que esse dia" -> "esse dia acontecesse.") and `ea subtitles` had no length limit at all."""
+    from editassist.subtitles import group, split_long
+
+    text = "Tudo o que você fez para que esse dia acontecesse. Uma responsabilidade inconstitucionalmente"
+    ws = [{"word": w, "start": i * 0.4, "end": i * 0.4 + 0.35} for i, w in enumerate(text.split())]
+    lines = group(split_long(ws, 15), max_words=4, max_chars=15)
+    texts = [" ".join(x["word"] for x in l["words"]) for l in lines]
+    assert all(len(t) <= 15 for t in texts), texts
+    assert "".join(texts).replace("-", "").replace(" ", "") == text.replace(" ", "")
+    pieces = [x for l in lines for x in l["words"] if x["word"].endswith("-")]
+    assert pieces and all(p["end"] > p["start"] for p in pieces)
+
+
 def test_captions_never_break_inside_a_dictionary_term():
     """"do Conselho | Tutelar." split a name over two caption lines (2026-10-08)."""
     from editassist.vocab import keep_terms
@@ -1278,6 +1362,40 @@ def test_client_preferences_folder(tmp_path, monkeypatch):
     vocab.add(["ana sousa=Ana Souza"], scope="ana-souza")
     assert vocab.load("reel-lancamento")["fixes"] == ["ana sousa=Ana Souza"]  # name has no "ana-souza"
     assert vocab.load("pod")["fixes"] == []
+
+
+def test_probe_flags_phone_hdr(tmp_path):
+    """iPhone clips are HLG (arib-std-b67): ingest recorded nothing, so nobody knew they needed a
+    conversion LUT (2026-10-13)."""
+    import subprocess
+
+    from editassist.media import probe
+
+    hlg, sdr = tmp_path / "hlg.mp4", tmp_path / "sdr.mp4"
+    for out, extra in ((hlg, ["-vf", "setparams=color_trc=arib-std-b67:color_primaries=bt2020:colorspace=bt2020nc"]),
+                       (sdr, [])):
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=30:d=0.2",
+                        "-c:v", "libx264", *extra, str(out)], check=True)
+    assert probe(hlg)["hdr"] == "hlg"
+    assert "hdr" not in probe(sdr)
+
+
+def test_transcribe_drops_hotword_and_low_confidence_hallucinations():
+    """Party clips with only music came back as "Gael Gael Gael Gael" and "Balneário Camboriú Carvalho
+    Agrestes Vavá DOMCast" (the dictionary's hotwords) or "Aero" at p 0.0 (2026-10-13)."""
+    from editassist.transcribe import hallucinated
+
+    hot = "Balneário Camboriú Carvalho Agrestes Vavá DOMCast Gael"
+
+    def seg(text, p):
+        return {"text": text, "words": [{"word": w, "prob": p} for w in text.split()]}
+
+    assert hallucinated(seg("Gael Gael Gael Gael", 0.42), hot)
+    assert hallucinated(seg("Carvalho Balneário Agrestes Vavá DOMCast", 0.07), hot)
+    assert hallucinated(seg("Aero", 0.0), hot)
+    assert not hallucinated(seg("Bem-vindos ao DOMCast, hoje com o Vavá", 0.9), hot)
+    assert not hallucinated(seg("Balneário Camboriú", 0.95), hot)  # said clearly: real
+    assert not hallucinated(seg("Ela vai sair de novo pra gente", 0.6), hot)
 
 
 def test_transcribe_head_tail_windows_keep_source_time(project, monkeypatch):

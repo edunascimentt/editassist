@@ -35,7 +35,9 @@ long recap; give the protagonist's own speech its own video.
    In the builder, snap the beat grid to frames FIRST (`round(t*fps)/fps`) and pad lines with
    `editassist.cut.resolve_segments` (never into a neighbouring word): off-grid cuts became 1-frame
    holes in Resolve (2026-10-08). `ea qa` flags them.
-5. `ea shake` (every hand-held clip, including one-beat slow-motion shots), `ea level`.
+5. `ea shake` (every hand-held clip, including one-beat slow-motion shots), `ea level`. Read the
+   user's preferences first: phone footage (iPhone, stabilised in camera) got "tira a estabilização, tudo"
+   (2026-10-14); ffmpeg `deshake` on top of in-camera stabilisation made it worse.
    subtitles (`bold`, 3 words, accent = title colour), render preview, qa with `--render`, then LOOK at
    ~20 frames of the render (text overflow, titles over logos, captions over faces).
 6. NLE: export-nle (`--open --current` for the project already open in Resolve).

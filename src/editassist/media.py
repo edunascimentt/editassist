@@ -63,6 +63,11 @@ def probe(path: Path) -> dict:
         if abs(rot) in (90, 270):
             w, h = h, w
         info.update(width=w, height=h, fps=round(fps, 3), vcodec=v.get("codec_name"))
+        # phone HDR (iPhone records HLG by default): shown as Rec.709 it looks flat and grey; it needs a
+        # conversion LUT like log footage (color skill step 0)
+        hdr = {"arib-std-b67": "hlg", "smpte2084": "pq"}.get(v.get("color_transfer", ""))
+        if hdr:
+            info["hdr"] = hdr
     if a:
         info.update(sample_rate=int(a.get("sample_rate", 48000)), channels=a.get("channels"), acodec=a.get("codec_name"))
     return info

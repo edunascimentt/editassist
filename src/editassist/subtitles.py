@@ -77,6 +77,7 @@ def group(ws: list[dict], max_words: int = 4, max_chars: int = 28, max_gap: floa
             carry = []
             while phrase and len(cur) > 1 and len(carry) < 2 and _clings(cur[-1], carry[0] if carry else w) \
                     and w["start"] - cur[-1]["end"] <= max_gap \
+                    and len(" ".join(x["word"] for x in [cur[-1]] + carry + [w])) <= max_chars \
                     and not (len(cur) == 2 and cur[0]["word"].lower() in CLINGY):  # no lone "o" line
                 carry.insert(0, cur.pop())
             lines.append(cur)
@@ -201,8 +202,29 @@ def drop_strays(ws: list[dict], gap: float = 2.0) -> list[dict]:
     return out
 
 
+def split_long(ws: list[dict], max_chars: int) -> list[dict]:
+    """Words longer than `max_chars` -> hyphenated pieces ("importan-", "te"), each timed by its share of
+    the letters, so a one-line caption of at most `max_chars` can always be built."""
+    from .resolve_subs import hyphenate
+
+    out = []
+    for w in ws:
+        parts = hyphenate(w["word"], max_chars)
+        if len(parts) == 1:
+            out.append(w)
+            continue
+        t, total = w["start"], sum(len(x) for x in parts)
+        for x in parts:
+            e = round(t + (w["end"] - w["start"]) * len(x) / total, 3)
+            out.append({**w, "word": x, "start": round(t, 3), "end": e})
+            t = e
+    return out
+
+
 def build(project: Project, style: str = "clean", max_words: int = 4, karaoke: bool = True,
-          out_name: str | None = None, fixes: list[str] | None = None) -> dict:
+          out_name: str | None = None, fixes: list[str] | None = None, max_chars: int | None = None) -> dict:
+    """`max_chars`: every caption is ONE line of at most that many characters (long words hyphenated
+    across two captions), the user's rule for vertical video (15, 2026-10-13)."""
     from . import vocab
 
     tl = T.load(project)
@@ -211,7 +233,10 @@ def build(project: Project, style: str = "clean", max_words: int = 4, karaoke: b
     ws = vocab.keep_terms(ws, known["terms"])
     if not ws:
         raise SystemExit("no words on the timeline: transcribe first and make sure A1 has dialogue")
-    lines = group(ws, max_words=max_words)
+    if max_chars:
+        lines = group(split_long(ws, max_chars), max_words=max_words, max_chars=max_chars)
+    else:
+        lines = group(ws, max_words=max_words)
     return _write(project, lines, out_name or tl["name"], style, karaoke)
 
 

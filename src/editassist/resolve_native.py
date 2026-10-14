@@ -333,7 +333,10 @@ def build(project: Project, tl: dict, rp, name: str, srt: Path | None = None, fo
                 report["placed"] += 1
                 it = res[0]
                 lut = (c.get("color") or {}).get("lut")
-                lut = str(project.abs(lut)) if lut else luts.get(p)
+                if lut:
+                    lut = str(project.abs(lut))
+                elif not c.get("graded"):  # a baked clip (ea bake) keeps its original media's grade
+                    lut = luts.get(p) or luts.get(_key(project.abs((c.get("source") or {}).get("media") or c["media"])))
                 if kind == "video" and lut:
                     ok = it.SetLUT(1, lut)
                     if not ok:  # outside Resolve's LUT folders: install a copy there, once per file

@@ -111,3 +111,6 @@ captions as a transparent picture layer plus the .srt in the bin, so the sequenc
 preview with no manual step. Copies keep the source size when only colour changes, so framing stays
 editable as Motion. Native options (Input LUT GUID, caption track) are to be adopted when Adobe's API
 exposes them.
+
+## 2026-10-13: Resolve export always builds natively
+`ea export --open` no longer tries `MediaPool.ImportTimelineFromFile` first. When Resolve 21.0 started accepting our OTIO, the import duplicated media into the user's selected bin and lost LUTs and clip gains, while the native build (resolve_native) already handles pool reuse, LUTs, gains, zooms, crops, templates and filing. The .otio is still written for manual import. Supersedes the "OTIO first, native fallback" behaviour.

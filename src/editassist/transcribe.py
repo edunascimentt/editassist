@@ -69,6 +69,26 @@ def uncovered_speech(audio, segs: list[dict], min_len: float = 1.0) -> list[tupl
     return gaps
 
 
+def _tok(w: str) -> str:
+    return "".join(ch for ch in w.casefold() if ch.isalnum())
+
+
+def hallucinated(seg: dict, hotwords: str | None) -> bool:
+    """Whisper on music or crowd noise (party clips, 2026-10-13): near-zero-confidence words ("Aero",
+    "Música", p < 0.15), or the dictionary's own hotwords recited ("Gael Gael Gael", "Balneário Camboriú
+    Carvalho Agrestes Vavá DOMCast" over a DJ set, p ~0.1-0.4). Real speech that names a dictionary term
+    is heard with confidence, so it stays."""
+    ws = seg.get("words") or []
+    if not ws:
+        return False
+    p = sum(w.get("prob", 1.0) for w in ws) / len(ws)
+    if p < 0.15:
+        return True
+    hot = {_tok(h) for h in (hotwords or "").split()} - {""}
+    toks = [_tok(w["word"]) for w in ws if _tok(w["word"])]
+    return bool(hot and toks) and p < 0.5 and sum(t in hot for t in toks) / len(toks) >= 0.6
+
+
 def windows(duration: float, head: float | None = None, tail: float | None = None,
             spans: list[tuple[float, float]] | None = None) -> list[tuple[float, float]]:
     """Source-time stretches to transcribe: the whole clip, or only its first `head` and last `tail`
@@ -154,6 +174,7 @@ def transcribe(project: Project, model: str | None = None, language: str | None 
         segs = list(prev["segments"]) if prev else []
         missed = [tuple(x) for x in prev.get("possibly_missed", [])] if prev else []
         lang = language
+        dropped = []
         for a, b in todo:  # times stay in source seconds whatever the window
             chunk = audio[int(a * 16000):int(b * 16000)]
             segments, info = whisper.transcribe(
@@ -168,6 +189,8 @@ def transcribe(project: Project, model: str | None = None, language: str | None 
                     "words": [{"start": round(a + w.start, 3), "end": round(a + w.end, 3), "word": w.word.strip(),
                                "prob": round(w.probability, 3)} for w in (s.words or [])],
                 })
+            dropped += [sg["text"] for sg in chunk_segs if hallucinated(sg, hot)]
+            chunk_segs = [sg for sg in chunk_segs if not hallucinated(sg, hot)]
             local = [{"words": [{"start": w["start"] - a, "end": w["end"] - a} for w in sg["words"]],
                       "start": sg["start"] - a, "end": sg["end"] - a} for sg in chunk_segs]
             missed += [(round(x + a, 2), round(y + a, 2)) for x, y in uncovered_speech(chunk, local)]
@@ -180,6 +203,8 @@ def transcribe(project: Project, model: str | None = None, language: str | None 
                   f"listen there or re-run with --force --model large-v3", flush=True)
         doc = {"media": sid, "language": lang, "model": model, "segments": segs,
                "possibly_missed": missed, "vocab_fixes": fixed}
+        if dropped:  # kept for the record: what Whisper "heard" in music/noise
+            doc["dropped_hallucinations"] = dropped
         if part:  # partial transcript: only these source stretches were heard
             doc["windows"] = [[round(a, 3), round(b, 3)] for a, b in spans_]
         write_json(out, doc)

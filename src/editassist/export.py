@@ -163,7 +163,8 @@ def export(project: Project, targets: list[str], open_resolve: bool = False, int
 
     grades = media_grade(project)
     graded = sorted({g["lut"] for tr in tl["tracks"] if tr["kind"] == "video" for c in tr["clips"]
-                     for g in [c.get("color") or grades.get(c["media"]) or {}] if g.get("lut") and not c.get("graded")})
+                     for g in [c.get("color") or grades.get(c["media"]) or grades.get((c.get("source") or {}).get("media"))
+                               or {}] if g.get("lut") and not c.get("graded")})
     if graded:
         warnings.append("colour grades are LUTs: Resolve gets them applied with --open; in Premiere add them in "
                         "Lumetri > Basic > Input LUT, in AE with Effect > Utility > Apply Color LUT: " + ", ".join(graded))
@@ -357,7 +358,7 @@ def resolve_import(project: Project, tl: dict, otio_path: Path, into_current: bo
     """Create (or reuse) a Resolve project and import the timeline. Resolve must be running, and
     Preferences > System > General > External scripting using must be set to Local.
     into_current: add the timeline to the project open in Resolve instead of one named after it.
-    If Resolve rejects the OTIO, the timeline is built natively clip by clip (resolve_native)."""
+    The timeline is built natively clip by clip (resolve_native); the .otio is for a manual import."""
     mod_dir, lib = _resolve_paths()
     os.environ.setdefault("RESOLVE_SCRIPT_API", str(Path(mod_dir).parent))
     os.environ.setdefault("RESOLVE_SCRIPT_LIB", lib)
@@ -390,47 +391,19 @@ def resolve_import(project: Project, tl: dict, otio_path: Path, into_current: bo
     existing = {rp.GetTimelineByIndex(i + 1).GetName() for i in range(rp.GetTimelineCount())}
     name = next_timeline_name(tl["name"], existing)
     srt = otio_path.with_suffix(".srt")
-    # a template (the user's styled timeline) and crops (Zoom + Pan per item) only survive the native build
-    cropped = any(c.get("crop") for tr in tl["tracks"] if tr["kind"] == "video" for c in tr["clips"])
-    timeline = None if template or cropped else mp.ImportTimelineFromFile(str(otio_path), {"timelineName": name,
-                                                                                "importSourceClips": True})
-    if not timeline:  # seen on Studio 21.0.0 for every OTIO/XML: build it clip by clip instead
-        from .resolve_native import build, file_timeline
+    # Always the native build. The OTIO import (rejected by 21.0.0, accepted again 2026-10-13) re-imports
+    # every clip into the user's selected bin (duplicates), applies no LUT from work/color and drops every
+    # clip gain; the native build reuses pool clips and handles LUTs, gains, zooms, crops and templates.
+    # The .otio stays on disk for a manual File > Import > Timeline.
+    from .resolve_native import build, file_timeline
 
-        rep = build(project, tl, rp, name, srt=srt, template=template)
-        filed = file_timeline(rp, rp.GetCurrentTimeline())
-        pm.SaveProject()
-        notes = ("; " + "; ".join(rep["notes"])) if rep["notes"] else ""
-        failed = f", {len(rep['failed'])} clips FAILED: {rep['failed']}" if rep["failed"] else ""
-        how = f"inside a copy of '{template}'" if template else "Resolve rejected the OTIO"
-        return (f"ok (built natively, {how}): project '{rp.GetName()}', timeline '{name}', "
-                f"{rep['placed']} clips, LUT on {rep['luts']}, {rep['speed_conformed']} speed copies conformed, {rep['zooms']} zooms, "
-                f"{rep.get('crops', 0)} crops (Zoom + Pan), {rep.get('stabilized', 0)} stabilized, {rep.get('gain_baked', 0)} audio clips at their level"
-                f"{', subtitles placed' if rep.get('subtitles') else ''}{failed}{notes}{_filed(filed)}")
-    rp.SetCurrentTimeline(timeline)
-    from .resolve_native import file_timeline
-
-    filed = file_timeline(rp, timeline)
-    # colour: apply each media's LUT (work/color.json) on node 1 of every clip from that media
-    from .videofx import media_grade
-
-    luts = {str(project.abs(k)): str(project.abs(v["lut"])) for k, v in media_grade(project).items() if v.get("lut")}
-    applied = 0
-    if luts:
-        for ti in range(1, (timeline.GetTrackCount("video") or 0) + 1):
-            for item in timeline.GetItemListInTrack("video", ti) or []:
-                mpi = item.GetMediaPoolItem()
-                path = mpi.GetClipProperty("File Path") if mpi else None
-                if path and str(Path(path).resolve()) in luts and item.SetLUT(1, luts[str(Path(path).resolve())]):
-                    applied += 1
-    placed = False
-    if srt.exists():
-        sub = (mp.ImportMedia([str(srt)]) or [None])[0]
-        if sub:  # a .srt pool item lands cue by cue on a subtitle track
-            if not timeline.GetTrackCount("subtitle"):
-                timeline.AddTrack("subtitle")
-            placed = bool(mp.AppendToTimeline([sub]))
+    rep = build(project, tl, rp, name, srt=srt, template=template)
+    filed = file_timeline(rp, rp.GetCurrentTimeline())
     pm.SaveProject()
-    return (f"ok: project '{rp.GetName()}', timeline '{name}'"
-            + ((" (subtitles placed)" if placed else " (SRT in media pool)") if srt.exists() else "")
-            + (f", LUT applied to {applied} clips" if applied else "") + _filed(filed))
+    notes = ("; " + "; ".join(rep["notes"])) if rep["notes"] else ""
+    failed = f", {len(rep['failed'])} clips FAILED: {rep['failed']}" if rep["failed"] else ""
+    how = f", inside a copy of '{template}'" if template else ""
+    return (f"ok (built natively{how}): project '{rp.GetName()}', timeline '{name}', "
+            f"{rep['placed']} clips, LUT on {rep['luts']}, {rep['speed_conformed']} speed copies conformed, {rep['zooms']} zooms, "
+            f"{rep.get('crops', 0)} crops (Zoom + Pan), {rep.get('stabilized', 0)} stabilized, {rep.get('gain_baked', 0)} audio clips at their level"
+            f"{', subtitles placed' if rep.get('subtitles') else ''}{failed}{notes}{_filed(filed)}")
