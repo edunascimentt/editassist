@@ -16,6 +16,8 @@
 - `ea subtitles` drops a word whose Whisper start is before the clip `in` even when most of the audible word is inside ("Todos" 0.56-1.08, in 0.917, cut by the user in Resolve); added back via `--lines`. Consider keeping head words whose end lands >= ~0.15 s into the clip.
 
 - Podcast episode assembly in Resolve was done by hand through the MCP (2026-10-10, a podcast client: 8 timelines): want `ea podcast <p> --intro <file> --overlap 0.5` that writes the trimmed episode (and multi-file joins, e.g. a part-2 opener from a second file) as timeline.json with the intro on V2/A2, bakes the intro fade as an alpha .mov, and builds it via resolve_native (with set_current_folder before each create).
+- resolve_native: V1 dissolves and the end fade are reported, not placed (21.0 has no transition API): the 15-anos recap (2026-10-13) needed 3 dissolves + a fade added by hand. Bake them (render the overlap as one clip) so Resolve matches the preview.
+- `ea qa --shots` (or `ea scenes --timeline`): one frame from the middle of every V1 shot of a render on one sheet. Done with a scratch script on the 15-anos recap (2026-10-14); it caught a shot where the phone had panned to a white wall.
 - resolve_native: fades/dissolves on overlay tracks could be baked as alpha .mov (ProRes 4444 + fade alpha) instead of only reported, since 21.0 has no SetFades/AddKeyframe.
 
 ## Premiere live bridge (built + verified on macOS Premiere 26.3.2, 2026-10-13)
@@ -40,3 +42,11 @@
 
 - Windows verification — CI now runs on windows-latest; waiting on the fixes above.
 - Higgsfield live test — waiting on API credentials in `.env`.
+
+## Team memory + review (from a team meeting, 2026-10-14)
+- Team-shared memory tier: general + client prefs live only in each person's private memory today, so one editor's lessons never reach the others. Idea: a private team git repo layered as team > client > video type > editor; changes by PR, only the two senior editors approve (real access control; a folder password would sit in Claude's memory).
+- Editor identity: ask "who uses this computer?" on first run (`ea whoami`), per-editor profile file, and "edit with <editor>'s preferences" loads it.
+- Video types inside a client (testimonial, CTA, studio, scripted static): `clients/<c>/formats/<type>.md`; the team asked for "pattern per project/video type, not per client".
+- `learn-edit` skill: read the live Resolve/Premiere timeline the editor just finished (or corrected), list what was done/changed, ask which tier to save it to. New team rule: every project passes through the AI before export.
+- Independent reviewer subagent (`.claude/agents/reviewer.md`, fresh context): `ea qa`, a second transcription with another model to flag caption text errors, and an approval model built from each reviewer's criteria (agreement = standard, disagreement = taste/options).
+- Memory history: "edit the line" rules lose what was removed and when; the team expects a dated history.
