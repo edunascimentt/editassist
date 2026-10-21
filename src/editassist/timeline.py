@@ -88,9 +88,15 @@ def _saved_in(project: Project) -> str | None:
     return None
 
 
-def save_slot(project: Project, slot: str) -> dict:
+def save_slot(project: Project, slot: str, force: bool = False) -> dict:
     tl = load(project)
     f, c = _slot_files(project, slot)
+    old = (read_json(f) or {}).get("name") if f.exists() else None
+    if old and old != tl["name"] and old != project.name and not force:
+        # a script edited the timeline left loaded (corte 5) and saved it as corte2, wiping that
+        # video (2026-10-20): a slot only takes back the video it holds, or one still unnamed
+        raise SystemExit(f"slot {slot!r} holds {old!r}, the working timeline is {tl['name']!r}: "
+                         f"load {slot!r} first, save under another slot, or --force to overwrite")
     write_json(f, tl)
     caps = captions(project, tl)  # another video's captions (a builder rewrote timeline.json) stay out
     if caps is not None:
@@ -215,6 +221,8 @@ def validate(project: Project, tl: dict) -> list[str]:
             p = project.abs(c["media"])
             if not p.exists():
                 problems.append(f"{where}: media file not found ({p})")
+            elif p.is_dir():
+                problems.append(f"{where}: media is a folder, not a file ({p})")
             if c["out"] <= c["in"]:
                 problems.append(f"{where}: out <= in")
             m = catalog.get(c["media"])

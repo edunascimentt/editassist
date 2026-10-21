@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.add_argument("action", choices=["info", "validate", "json", "ripple", "save", "load", "slots"], nargs="?", default="info")
     p.add_argument("slot", nargs="?", help="save/load: slot name (timelines/<slot>.json, with its captions)")
-    p.add_argument("--force", action="store_true", help="load: drop unsaved changes in timeline.json")
+    p.add_argument("--force", action="store_true", help="load: drop unsaved changes in timeline.json; save: overwrite a slot holding another video")
 
     p = sub.add_parser("subtitles", help="captions on the edited timeline (.srt + styled .ass)")
     p.add_argument("project"); p.add_argument("--style", default="clean", choices=["clean", "bold", "boxed"])
@@ -177,6 +177,8 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("reformat", help="change aspect ratio with face-aware crops")
     p.add_argument("project"); p.add_argument("--aspect", default="9:16")
     p.add_argument("--bake", action="store_true", help="render cropped clips so NLE exports keep the framing")
+    p.add_argument("--prefer", choices=["left", "right"],
+                   help="shots with several faces: frame the one on this side (where the guest sits)")
 
     p = sub.add_parser("render", help="render timeline to mp4")
     p.add_argument("project"); p.add_argument("--preset", default="preview",
@@ -442,7 +444,7 @@ def main(argv: list[str] | None = None) -> None:
         if a.action in ("save", "load"):
             if not a.slot:
                 raise SystemExit(f"ea timeline <p> {a.action} <slot>")
-            out(T.save_slot(pr, a.slot) if a.action == "save" else T.load_slot(pr, a.slot, a.force))
+            out(T.save_slot(pr, a.slot, a.force) if a.action == "save" else T.load_slot(pr, a.slot, a.force))
             return
         if a.action == "slots":
             out({"slots": T.slots(pr), "current": T._saved_in(pr)})
@@ -505,7 +507,7 @@ def main(argv: list[str] | None = None) -> None:
         out(dub(Project(a.project), a.lang, a.source, a.source_lang, a.speakers))
     elif a.cmd == "reformat":
         from .reformat import reformat
-        out(reformat(Project(a.project), a.aspect, a.bake))
+        out(reformat(Project(a.project), a.aspect, a.bake, a.prefer))
     elif a.cmd == "render":
         from .render import render
         pr = Project(a.project)

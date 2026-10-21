@@ -19,15 +19,17 @@ ASPECTS = {"9:16": (1080, 1920), "1:1": (1080, 1080), "4:5": (1080, 1350), "16:9
 YUNET = ROOT / "assets" / "models" / "face_detection_yunet_2023mar.onnx"
 
 
-def face_center(path: str, t0: float, t1: float, samples: int = 8) -> tuple[float, float] | None:
-    """Median face centre (0..1) over a time range, or None if no face found.
+def face_center(path: str, t0: float, t1: float, samples: int = 8,
+                prefer: str | None = None) -> tuple[float, float] | None:
+    """Face centre (0..1) over a time range, or None if no face found. `prefer` = left|right: in shots
+    with several faces take the one on that side (where the podcast guest sits) instead of the biggest.
     YuNet (bundled ONNX, MIT) via cv2.FaceDetectorYN: works on OpenCV 4.5.4+ and 5.x."""
     os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")  # OpenCV 5 warns about DNN targets on every call
     import cv2
 
     cap = cv2.VideoCapture(path)
     det = None
-    xs, ys = [], []
+    found = []
     for k in range(samples):
         t = t0 + (t1 - t0) * (k + 0.5) / samples
         cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
@@ -41,13 +43,38 @@ def face_center(path: str, t0: float, t1: float, samples: int = 8) -> tuple[floa
             det = cv2.FaceDetectorYN.create(str(YUNET), "", (sw, sh), 0.7)
         _, faces = det.detect(small)
         if faces is not None and len(faces):
-            x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])[:4]  # biggest face = speaker
-            xs.append((x + fw / 2) / sw)
-            ys.append((y + fh / 2) / sh)
+            found.append([((x + fw / 2) / sw, (y + fh / 2) / sh, fw * fh) for x, y, fw, fh in
+                          (f[:4] for f in faces)])
     cap.release()
-    if not xs:
+    return pick_face(found, prefer)
+
+
+def pick_face(samples: list[list[tuple[float, float, float]]], prefer: str | None = None,
+              same: float = 0.08) -> tuple[float, float] | None:
+    """One face position from per-frame detections [(cx, cy, area), ...]. Each frame votes for one face
+    (the biggest, or the one on the `prefer` side when several are in frame); the votes are grouped by
+    position and the biggest group wins. A median over the raw votes averaged two people in a wide (the
+    biggest face flips between guest and host, similar sizes) and framed the empty table between them
+    (2026-10-20, podcast cortes)."""
+    votes = []
+    for faces in samples:
+        if not faces:
+            continue
+        if prefer in ("left", "right") and len(faces) > 1:
+            f = (min if prefer == "left" else max)(faces, key=lambda f: f[0])
+        else:
+            f = max(faces, key=lambda f: f[2])
+        votes.append(f)
+    if not votes:
         return None
-    return float(statistics.median(xs)), float(statistics.median(ys))
+    groups: list[list[tuple]] = []
+    for v in sorted(votes, key=lambda f: f[0]):
+        if groups and v[0] - groups[-1][-1][0] <= same:
+            groups[-1].append(v)
+        else:
+            groups.append([v])
+    best = max(groups, key=lambda g: (len(g), sum(f[2] for f in g)))
+    return float(statistics.median(f[0] for f in best)), float(statistics.median(f[1] for f in best))
 
 
 def split_at_cuts(project: Project, tl: dict, min_shot: float = 0.4, flashes: list | None = None) -> int:
@@ -83,11 +110,21 @@ def split_at_cuts(project: Project, tl: dict, min_shot: float = 0.4, flashes: li
     return n
 
 
-def reformat(project: Project, aspect: str = "9:16", bake: bool = False) -> dict:
+def frame_size(aspect: str, width: int | None = None, height: int | None = None) -> tuple[int, int]:
+    """Output size for `aspect` at the project's resolution: the short side stays (a 4K project,
+    3840x2160 or 2160x3840, gives 2160x3840 for 9:16), never below the 1080 base. Reformat used to
+    write 1080x1920 over a 4K project (2026-10-20; the user wants every timeline in 4K)."""
+    W, H = ASPECTS[aspect]
+    short = min(width or 0, height or 0)
+    k = max(1.0, short / min(W, H))
+    return int(round(W * k / 2)) * 2, int(round(H * k / 2)) * 2
+
+
+def reformat(project: Project, aspect: str = "9:16", bake: bool = False, prefer: str | None = None) -> dict:
     if aspect not in ASPECTS:
         raise SystemExit(f"aspect must be one of {list(ASPECTS)}")
-    W, H = ASPECTS[aspect]
     tl = T.load(project)
+    W, H = frame_size(aspect, tl.get("width"), tl.get("height"))
     catalog = {m["path"]: m for m in (read_json(project.path("work", "media.json"), {}) or {}).values()}
     flashes: list[str] = []
     stats = {"clips": 0, "faces": 0, "split_at_cuts": split_at_cuts(project, tl, flashes=flashes)}
@@ -106,7 +143,7 @@ def reformat(project: Project, aspect: str = "9:16", bake: bool = False) -> dict
                 cw, ch = int(sh * target) // 2 * 2, sh
             else:
                 cw, ch = sw, int(sw / target) // 2 * 2
-            fc = face_center(str(project.abs(c["media"])), c["in"], c["out"])
+            fc = face_center(str(project.abs(c["media"])), c["in"], c["out"], prefer=prefer)
             cx, cy = fc if fc else (0.5, 0.45)
             stats["faces"] += bool(fc)
             x = int(min(max(cx * sw - cw / 2, 0), sw - cw))

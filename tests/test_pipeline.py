@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -834,6 +835,14 @@ def test_validate_normalizes_symlinked_media_paths(project, tmp_path):
     assert T.normalize_media(project, tl) == 0
 
 
+def test_validate_rejects_folder_as_media(project):
+    """A clip whose media is a folder (an empty filename in a scripted swap) passed validate and qa,
+    then ffmpeg failed at render with "Is a directory"."""
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 0, "out": 1}])
+    T.track(tl, "V1")["clips"][0]["media"] = "input"
+    assert any("folder" in p for p in T.validate(project, tl))
+
+
 def test_color_unknown_media_id_is_an_error(project):
     from editassist import color
 
@@ -1043,6 +1052,33 @@ def test_level_uses_the_voice_side_of_a_dual_mic_recording(project):
     import numpy as np
     x = np.frombuffer(raw, np.float32).reshape(-1, 2)
     assert np.allclose(x[:, 0], x[:, 1])  # the voice on both sides, no car noise in one ear
+
+
+def test_gain_copies_never_clip_a_lifted_quiet_voice(project):
+    """A quiet podcast raw (peaks -10 dBFS, voice ~-32 LUFS) leveled to -16 LUFS gets +16 dB: the wav
+    placed in Resolve hard-clipped every peak at 0 dBFS (2026-10-20). Gain copies are limited to -1 dBFS."""
+    from editassist.bake import gain_copies
+    from editassist.ingest import ingest
+
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                    "aevalsrc=0.3*sin(2*PI*220*t)*(0.15+0.85*gt(sin(2*PI*3*t)\\,0.95)):s=48000:d=4",
+                    str(project.path("input", "quiet.wav"))], check=True)
+    ingest(project)
+    tl = T.from_segments(project, [{"media": "input/quiet.wav", "in": 0, "out": 4}], with_video=False)
+    T.track(tl, "A1")["clips"][0]["gain_db"] = 16.0
+    T.save(project, tl)
+    baked, n = gain_copies(project, T.load(project))
+    assert n == 1
+    out = project.abs(T.track(baked, "A1")["clips"][0]["media"])
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(out), "-f", "f32le", "-"], capture_output=True).stdout
+    import numpy as np
+    x = np.abs(np.frombuffer(raw, np.float32))
+    assert x.max() <= 0.9  # under -1 dBFS, nothing clipped
+    assert x.max() > 0.5   # still lifted (the quiet parts got their +16 dB)
+    # and under -1 dB TRUE peak: -1 dBFS samples rendered at -0.1 dBTP from Resolve (2026-10-21)
+    log = subprocess.run(["ffmpeg", "-nostats", "-i", str(out), "-af", "ebur128=peak=true", "-f", "null", "-"],
+                         capture_output=True, text=True).stderr
+    assert float(re.findall(r"Peak:\s+(-?[\d.]+) dBFS", log)[-1]) <= -1.0
 
 
 def test_ingest_proxies_never_reuse_a_truncated_file(project, monkeypatch):
@@ -1274,6 +1310,27 @@ def test_timeline_slots_keep_each_videos_captions(project):
     assert T.load_slot(project, "recap", force=True)["name"] == "recap"
 
 
+def test_timeline_slot_save_never_overwrites_another_video(project):
+    """A fix meant for corte 2 ran on the timeline left loaded (corte 5) and was saved as corte2, wiping
+    corte 2 (2026-10-20). A slot only takes back its own video (or one still carrying the default name)."""
+    tl = T.new(project)
+    tl["tracks"][0]["clips"] = [{"media": "input/cam_a.mp4", "in": 0, "out": 2, "start": 0}]
+    T.save(project, tl)
+    T.save_slot(project, "corte2")                    # unnamed draft (project name): fine
+    tl["name"] = "CORTE 2"
+    T.save(project, tl)
+    T.save_slot(project, "corte2")                    # naming the draft in its own slot: fine
+    tl["name"] = "CORTE 5"
+    T.save(project, tl)
+    T.save_slot(project, "corte5")
+    with pytest.raises(SystemExit, match="holds 'CORTE 2'"):
+        T.save_slot(project, "corte2")
+    assert T.load_slot(project, "corte2", force=True)["name"] == "CORTE 2"
+    tl["name"] = "CORTE 5"
+    T.save(project, tl)
+    assert T.save_slot(project, "corte2", force=True)["name"] == "CORTE 5"
+
+
 def test_qa_overlay_past_the_picture(project):
     """An end title placed 0.3 s into the last shot with the shot's full length ran 0.1 s past the video."""
     from editassist.qa import check
@@ -1494,6 +1551,37 @@ def test_reformat_splits_clips_at_camera_cuts(project, tmp_path):
     assert len(flashes) == 1 and "head" in flashes[0]
 
 
+def test_reformat_keeps_the_project_resolution():
+    """A 4K project reformatted to 9:16 came out 1080x1920 (the user wants 4K always, 2026-10-20)."""
+    from editassist.reformat import frame_size
+
+    assert frame_size("9:16", 2160, 3840) == (2160, 3840)
+    assert frame_size("9:16", 3840, 2160) == (2160, 3840)
+    assert frame_size("1:1", 3840, 2160) == (2160, 2160)
+    assert frame_size("4:5", 3840, 2160) == (2160, 2700)
+    assert frame_size("9:16", 1920, 1080) == (1080, 1920)
+    assert frame_size("9:16", 1280, 720) == (1080, 1920)  # never below the 1080 base
+    assert frame_size("9:16") == (1080, 1920)
+
+
+def test_reformat_frames_one_person_in_a_two_shot():
+    """In a podcast wide the biggest face flips between guest (left) and host (right): the median of
+    those votes framed the empty table between them (2026-10-20). The biggest group of votes wins, and
+    `prefer` frames the guest's side whenever several faces are in frame."""
+    from editassist.reformat import pick_face
+
+    guest, host = (0.28, 0.4, 100.0), (0.78, 0.4, 104.0)
+    flip = [[guest, host] if k % 2 else [host, guest] for k in range(8)]
+    flip = [[(x, y, a + (k % 2) * 10 if x < 0.5 else a) for x, y, a in f] for k, f in enumerate(flip)]
+    x, _ = pick_face(flip)
+    assert abs(x - 0.28) < 0.05 or abs(x - 0.78) < 0.05  # one of the two people, never the table
+    assert pick_face(flip, prefer="left")[0] == pytest.approx(0.28)
+    assert pick_face(flip, prefer="right")[0] == pytest.approx(0.78)
+    close_up = [[(0.55, 0.35, 900.0)]] * 6
+    assert pick_face(close_up, prefer="left")[0] == pytest.approx(0.55)  # one face: prefer changes nothing
+    assert pick_face([[], []]) is None
+
+
 def test_subtitles_from_lines_keeps_written_lines(project, tmp_path):
     """Hand-polished caption lines stay as written: from_lines split "eu falo, e é bom," at its comma into
     a 0.2 s flash (2026-10-10). Only lines too long for the screen are chunked."""
@@ -1630,6 +1718,26 @@ def test_remotion_countdown(project):
     r = render_motion(project, "Countdown", {"from": 5, "to": 3, "lines": ["dias para o _novo EP_", "do (Dom Cast)"],
                                              "width": 360, "height": 640, "fps": 10}, seconds=1)
     assert project.path(r["path"]).exists()
+
+
+def test_remotion_countdown_holds_number_before_last_flip(project):
+    """In the pause before the last flip the card showed the final number, jumped back to the one
+    before, then flipped (5, 4, 3, 3, 4, 3): every DOMCast countdown had it (2026-10-19)."""
+    import numpy as np
+    from editassist.motion import render_motion
+
+    T.save(project, T.new(project))
+    r = render_motion(project, "Countdown", {"from": 5, "to": 3, "width": 360, "height": 640, "fps": 50},
+                      seconds=2.5)
+
+    def card(t):  # grey crop of the card, flips at 1.00-1.13 (5>4), pause, 1.31-1.73 (4>3)
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(t), "-i", str(project.path(r["path"])),
+                              "-frames:v", "1", "-vf", "crop=160:250:100:150,format=gray", "-f", "rawvideo", "-"],
+                             capture_output=True, check=True).stdout
+        return np.frombuffer(raw, np.uint8).astype(float)
+
+    pause, four, three = card(1.24), card(1.12), card(2.4)
+    assert np.abs(pause - four).mean() < np.abs(pause - three).mean()
 
 
 def test_remotion_save_the_date(project):

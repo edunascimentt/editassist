@@ -154,6 +154,9 @@ def _ch(c: dict) -> tuple:
     return (c["channel"],) if c.get("channel") in ("L", "R") else ()
 
 
+PEAK_LIMIT = 0.794  # -2 dBFS: samples at -1 still rendered -0.1 dBTP from Resolve (2026-10-21)
+
+
 def gain_copies(project: Project, tl: dict) -> tuple[dict, int]:
     """Copy of `tl` where every audio clip with a gain or fade plays a rendered wav of just its
     segment with that gain and those fades applied (work/baked/gain_*.wav, reused when unchanged).
@@ -172,7 +175,7 @@ def gain_copies(project: Project, tl: dict) -> tuple[dict, int]:
             if not (c.get("gain_db") or fi or fo or c.get("channel") in ("L", "R")):
                 continue
             sp = c.get("speed", 1.0)
-            dst = out_dir / f"gain_{_key(c['media'], c['in'], c['out'], sp, c.get('gain_db', 0), fi, fo, *_ch(c))}.wav"
+            dst = out_dir / f"gain_{_key(c['media'], c['in'], c['out'], sp, c.get('gain_db', 0), fi, fo, *_ch(c), 'lim2')}.wav"
             if not dst.exists():
                 out_dir.mkdir(parents=True, exist_ok=True)
                 d = T.dur(c)
@@ -180,6 +183,9 @@ def gain_copies(project: Project, tl: dict) -> tuple[dict, int]:
                         (f",afade=t=out:st={max(0, d - fo):.3f}:d={fo:.3f}" if fo else "")
                 af = (atempo_chain(sp) + "," if sp != 1.0 else "") + \
                     f"aresample=48000,{T.channel_filter(c)}aformat=channel_layouts=stereo,volume={c.get('gain_db', 0)}dB{fades}"
+                if c.get("gain_db", 0) > 0:  # a quiet podcast raw lifted +15 dB put its peaks at +5 dBFS: the
+                    # 24-bit wav hard-clipped them in Resolve (2026-10-20). Limit with room for inter-sample peaks.
+                    af += f",alimiter=limit={PEAK_LIMIT}:attack=1:release=50:level=false"
                 run(["ffmpeg", "-y", "-v", "error", "-ss", f"{c['in']:.3f}", "-t", f"{c['out'] - c['in']:.3f}",
                      "-i", str(project.abs(c["media"])), "-vn", "-af", af, "-c:a", "pcm_s24le", str(dst)],
                     cwd=project.dir)
