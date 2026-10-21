@@ -225,3 +225,11 @@ def load_transcript(project: Project, sid: str) -> dict | None:
 def words(project: Project, sid: str) -> list[dict]:
     t = load_transcript(project, sid)
     return [w for s in (t or {}).get("segments", []) for w in s["words"]]
+
+
+def heard_start(w: dict) -> float:
+    """Where the voice of a word really starts. Whisper often stretches a short word back over the
+    pause before it ("A" of "A gente" as 0.86 s, "Segue" as 1.66 s): the sound sits at the END of
+    such a span. Longer than a slow reading of its letters, the word starts that long before its end."""
+    longest = 0.15 + 0.12 * max(1, sum(ch.isalnum() for ch in w["word"]))
+    return max(w["start"], w["end"] - longest)

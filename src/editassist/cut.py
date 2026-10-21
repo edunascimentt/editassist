@@ -8,12 +8,17 @@ from . import timeline as T
 from .ingest import media_by_id
 from .media import run
 from .project import Project
-from .transcribe import words
+from .transcribe import load_transcript, words
 
 # Hesitation sounds only. Real words that are often fillers ("tipo", "like", "né", "so") are
 # context dependent: the model removes those by reading the transcript, not by list.
+# Matched with accents kept: "ã" is a hesitation, "a" is a word (folding them dropped the "A" of
+# "A gente" as a filler and clipped it mid-word, podcast cortes 2026-10-20).
 FILLERS = {"uh", "um", "uhm", "umm", "ah", "ahh", "eh", "ehh", "er", "erm", "hmm", "hm", "mm",
-           "ãh", "ã", "ãã", "éé", "éé", "ahn", "hum", "humm", "ééé", "aham"}
+           "ãh", "ã", "ãã", "éé", "ahn", "hum", "humm", "ééé", "aham"}
+# hesitations in one language that are real words in another: Portuguese "um" = "a / one"
+# ("em um ano e meio" lost its "um")
+NOT_FILLERS = {"pt": {"um"}}
 
 
 def norm(s: str) -> str:
@@ -22,9 +27,9 @@ def norm(s: str) -> str:
     return re.sub(r"[^\w]+", "", s)
 
 
-def is_filler(w: str) -> bool:
-    raw = re.sub(r"[^\w]+", "", w.lower())
-    return raw in FILLERS or norm(w) in {norm(f) for f in FILLERS}
+def is_filler(w: str, language: str | None = None) -> bool:
+    raw = re.sub(r"[^\w]+", "", unicodedata.normalize("NFC", w.lower()))
+    return raw in FILLERS and raw not in NOT_FILLERS.get((language or "")[:2].lower(), set())
 
 
 def speech_segments(project: Project, sid: str, min_silence: float = 0.45, pad: float = 0.08,
@@ -34,7 +39,8 @@ def speech_segments(project: Project, sid: str, min_silence: float = 0.45, pad: 
     if not ws:
         return silencedetect_segments(project, sid, min_silence, pad)
     if drop_fillers:
-        ws = [w for w in ws if not is_filler(w["word"])]
+        lang = project.settings.get("language") or (load_transcript(project, sid) or {}).get("language")
+        ws = [w for w in ws if not is_filler(w["word"], lang)]
     segs, cur = [], None
     for w in ws:
         if cur and w["start"] - cur["out"] < min_silence:
@@ -111,16 +117,16 @@ def _neighbours(ws: list[dict], a: float, b: float) -> tuple[float, float]:
 PAD_IN, PAD_OUT = 0.12, 0.30
 
 
-def audible_end(project: Project, sid: str, t: float, limit: float = 0.9) -> float:
-    """Where the voice really stops after `t`: first 0.12 s run below (local noise floor + 6 dB) in the
-    analysis audio, at most `limit` s later. Used when Whisper squeezed the last word."""
+def _levels(project: Project, sid: str, t: float):
+    """25 ms RMS levels (dB) of the analysis audio from t-5 s to t+5 s, with that window's start and
+    its noise floor (10th percentile); None without analysis audio."""
     import wave
 
     import numpy as np
 
-    m = media_by_id(project)[sid]
+    m = media_by_id(project).get(sid) or {}
     if not m.get("analysis_audio"):
-        return t
+        return None
     with wave.open(str(project.abs(m["analysis_audio"])), "rb") as w:
         sr = w.getframerate()
         w.setpos(max(0, int((t - 5) * sr)))
@@ -128,10 +134,19 @@ def audible_end(project: Project, sid: str, t: float, limit: float = 0.9) -> flo
     hop = sr // 40  # 25 ms
     n = len(a) // hop
     if not n:
-        return t
+        return None
     db = 20 * np.log10(np.sqrt((a[: n * hop].reshape(n, hop) ** 2).mean(1)) + 1e-9)
-    thr = np.percentile(db, 10) + 6
-    t0 = max(0.0, t - 5)
+    return db, max(0.0, t - 5), float(np.percentile(db, 10))
+
+
+def audible_end(project: Project, sid: str, t: float, limit: float = 0.9) -> float:
+    """Where the voice really stops after `t`: first 0.12 s run below (local noise floor + 6 dB) in the
+    analysis audio, at most `limit` s later. Used when Whisper squeezed the last word."""
+    lv = _levels(project, sid, t)
+    if lv is None:
+        return t
+    db, t0, floor = lv
+    n, thr = len(db), floor + 6
     i, quiet = int((t - t0) * 40), 0
     while i < n and (i / 40 + t0) < t + limit:
         quiet = quiet + 1 if db[i] < thr else 0
@@ -139,6 +154,17 @@ def audible_end(project: Project, sid: str, t: float, limit: float = 0.9) -> flo
             return round(t0 + (i - 4) / 40, 3)
         i += 1
     return round(min(t + limit, t0 + n / 40), 3)
+
+
+def voiced_at(project: Project, sid: str, t: float) -> bool | None:
+    """Is there sound above the noise floor (+10 dB) right at `t`? A cut there is inside a word; one in
+    a quiet frame is not, whatever span Whisper gave the word. None without analysis audio."""
+    lv = _levels(project, sid, t)
+    if lv is None:
+        return None
+    db, t0, floor = lv
+    i = int((t - t0) * 40)
+    return bool(0 <= i < len(db) and db[i] >= floor + 10)
 
 
 def squeezed(ws: list[dict], out: float) -> bool:

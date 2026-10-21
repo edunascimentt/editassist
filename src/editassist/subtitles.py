@@ -10,7 +10,7 @@ import unicodedata
 from . import timeline as T
 from .ingest import media_by_id
 from .project import Project, read_json, write_json
-from .transcribe import words
+from .transcribe import heard_start, words
 
 STYLES = {
     # name: (font, size as % of height, primary, outline, highlight, bold, uppercase, position)
@@ -29,12 +29,15 @@ def timeline_words(project: Project, tl: dict) -> list[dict]:
         if not sid:
             continue
         for w in words(project, sid):
-            mid = (w["start"] + w["end"]) / 2
+            # judged on the voiced part: a span Whisper stretched back over a pause ("Segue" heard
+            # only after the cut, 2026-10-20) is not on screen before the cut
+            start = heard_start(w)
+            mid = (start + w["end"]) / 2
             # a word that starts inside the kept audio is heard even when Whisper stretched its end
             # over the following pause (its midpoint then falls after the cut)
-            if c["in"] <= mid <= c["out"] or c["in"] <= w["start"] <= c["out"] - 0.05:
+            if c["in"] <= mid <= c["out"] or c["in"] <= start <= c["out"] - 0.05:
                 sp = c.get("speed", 1.0)
-                a = c["start"] + (max(w["start"], c["in"]) - c["in"]) / sp
+                a = c["start"] + (max(start, c["in"]) - c["in"]) / sp
                 b = c["start"] + (min(w["end"], c["out"]) - c["in"]) / sp
                 item = {"word": unicodedata.normalize("NFC", w["word"]), "start": round(a, 3), "end": round(max(b, a + 0.05), 3),
                         "_src": (c["media"], w["start"], w["end"])}  # for group(): never join two cut-apart lines
@@ -166,8 +169,16 @@ def apply_fixes(ws: list[dict], fixes: list[str]) -> list[dict]:
                     i += len(span)  # already right (case-only fixes, re-applied dictionaries)
                     continue
                 a, b = span[0]["start"], span[-1]["end"]
-                # the right side stays ONE caption token, so "launch control" never splits over two lines
-                rep = [{**span[0], "word": " ".join(new) + tail, "start": a, "end": b}] if new else []
+                same = [norm(x) == norm(n) for x, n in zip(old, new)] if len(new) == len(old) else []
+                if same and same[0] and same[-1] and not all(same):
+                    # unchanged words on both sides = context for a homophone ("mantém, por menos=mantém,
+                    # pelo menos"): word for word with each word's own times; one 18-char token broke
+                    # the 15-char captions. A name ("loud control=launch control") stays one token.
+                    punct = lambda w: re.sub(r"^.*?([.,!?;:]*)$", r"\1", w)
+                    rep = [{**x, "word": n + ("" if punct(n) else punct(x["word"]))} for x, n in zip(span, new)]
+                else:
+                    # the right side stays ONE caption token, so "launch control" never splits over two lines
+                    rep = [{**span[0], "word": " ".join(new) + tail, "start": a, "end": b}] if new else []
                 out[i:i + len(old)] = rep
                 i += max(len(rep), 1)
             else:

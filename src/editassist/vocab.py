@@ -164,16 +164,18 @@ def keep_terms(ws: list[dict], terms: list[str]) -> list[dict]:
 
 
 def fix_transcript(t: dict, fixes: list[str]) -> int:
-    """Fix every segment of a transcript dict in place; segment text is rebuilt from fixed words."""
-    total = 0
-    for sg in t.get("segments", []):
-        if not sg.get("words"):
-            continue
-        ws, n = fix_words(sg["words"], fixes)
-        if n:
-            sg["words"] = ws
-            sg["text"] = " ".join(w["word"] for w in ws)
-            total += n
+    """Fix every segment of a transcript dict in place; segment text is rebuilt from fixed words.
+    Fixes run over the whole word list, so a phrase Whisper split over two segments is found too
+    ("apartamento... | Apartamento,", 2026-10-21); a replaced span stays in its first word's segment."""
+    segs = t.get("segments", [])
+    flat = [{**w, "_seg": i} for i, sg in enumerate(segs) for w in sg.get("words") or []]
+    ws, total = fix_words(flat, fixes)
+    if total:
+        for i, sg in enumerate(segs):
+            mine = [{k: v for k, v in w.items() if k != "_seg"} for w in ws if w["_seg"] == i]
+            if sg.get("words") and mine != sg["words"]:
+                sg["words"] = mine
+                sg["text"] = " ".join(w["word"] for w in mine)
     return total
 
 

@@ -4,11 +4,12 @@ from __future__ import annotations
 import re
 
 from . import timeline as T
+from .cut import voiced_at
 from .ingest import media_by_id
 from .media import run
 from .project import Project, read_json
 from .render import PRESETS
-from .transcribe import words
+from .transcribe import heard_start, words
 
 
 def check(project: Project, render_path: str | None = None, preset: str | None = None) -> dict:
@@ -66,8 +67,9 @@ def check(project: Project, render_path: str | None = None, preset: str | None =
         for edge, t in (("in", c["in"]), ("out", c["out"])):
             if (edge == "in" and cont_in) or (edge == "out" and cont_out):
                 continue
-            w = next((w for w in ws if w["start"] + 0.04 < t < w["end"] - 0.04), None)
-            if w:
+            w = next((w for w in ws if heard_start(w) + 0.04 < t < w["end"] - 0.04), None)
+            # Whisper spans are loose ("A" given 0.86 s): a cut in a silent frame splits nothing
+            if w and voiced_at(project, by_path.get(c["media"], ""), t) is not False:
                 add("warn", f"A1 cut {edge} at timeline {c['start'] if edge == 'in' else T.end(c):.2f}s "
                             f"splits the word {w['word']!r} ({w['start']:.2f}-{w['end']:.2f} in source)")
     caps = (T.captions(project, tl) or {}).get("lines", [])
