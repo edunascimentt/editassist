@@ -274,12 +274,52 @@ def from_lines(project: Project, lines_file: str, name: str, style: str = "clean
     return _write(project, lines, name, style, karaoke=False, captions_file=f"work/captions_{name}.json")
 
 
+def cut_points(tl: dict) -> list[float]:
+    """Every edit on the picture or the dialogue (V1/A1 clip starts) inside the timeline."""
+    end = T.length(tl)
+    return sorted({round(c["start"], 4) for name in ("V1", "A1") for c in T.track(tl, name)["clips"]
+                   if 1e-3 < c["start"] < end - 1e-3})
+
+
+def fit_to_cuts(lines: list[dict], cuts: list[float], min_len: float = 0.2) -> list[dict]:
+    """No caption runs over an edit: a line that a cut falls inside ends at the cut, starts at it, or is
+    split there (words by their midpoint), so captions change exactly with the picture. The 0.25 s hold
+    and Whisper's loose word times ran captions a few frames into the next clip (2026-10-21, "a legenda
+    tem que acabar no momento que o clipe acaba"). A side shorter than `min_len` is not kept as its own
+    flash: the whole line moves to the other side."""
+    eps = 1 / 240
+    out = []
+    for line in lines:
+        segs = [line]
+        for k in cuts:
+            nxt = []
+            for sg in segs:
+                if not sg["start"] + eps < k < sg["end"] - eps:
+                    nxt.append(sg)
+                    continue
+                left = [w for w in sg["words"] if (w["start"] + w["end"]) / 2 < k]
+                right = sg["words"][len(left):]
+                if left and right and k - sg["start"] >= min_len and sg["end"] - k >= min_len:
+                    nxt += [{**sg, "words": left, "end": k}, {**sg, "words": right, "start": k}]
+                elif left and (not right or sg["end"] - k < min_len):
+                    nxt.append({**sg, "end": k})
+                else:
+                    nxt.append({**sg, "start": k})
+            segs = nxt
+        out += segs
+    for sg in out:  # word times inside their line (karaoke highlights)
+        sg["words"] = [{**w, "start": min(max(w["start"], sg["start"]), sg["end"]),
+                        "end": max(min(w["end"], sg["end"]), sg["start"])} for w in sg["words"]]
+    return out
+
+
 def _write(project: Project, lines: list[dict], name: str, style: str, karaoke: bool,
            captions_file: str = "work/captions.json") -> dict:
     tl = T.load(project)
     # don't let a line linger past the next one
     for a, b in zip(lines, lines[1:]):
         a["end"] = min(a["end"] + 0.25, b["start"])
+    lines = fit_to_cuts(lines, cut_points(tl))
     srt = "\n".join(f"{i}\n{_srt_ts(l['start'])} --> {_srt_ts(l['end'])}\n"
                     f"{' '.join(w['word'] for w in l['words'])}\n" for i, l in enumerate(lines, 1))
     srt_path = project.path("output", f"{name}.srt")

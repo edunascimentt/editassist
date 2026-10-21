@@ -96,3 +96,47 @@ def test_qa_ignores_a_split_in_silence_but_not_in_the_voice(project):
 
     assert not splits(5.85)  # silent frame before the tone
     assert splits(6.2)  # inside the tone
+
+
+def test_zoom_focus_keeps_the_face_the_crop_frames(monkeypatch):
+    """A podcast wide: the host nearer the camera has the biggest face, the vertical crop frames the
+    guest on the left. The punch-in must centre on the guest, not slide towards the host."""
+    from editassist import reformat, zoom
+
+    guest, host = (0.28, 0.45, 0.010), (0.72, 0.42, 0.016)
+    assert reformat.pick_face([[guest, host]] * 4, prefer=0.30)[0] == pytest.approx(0.28)
+    seen = {}
+
+    def fake_face_center(path, t0, t1, samples=8, prefer=None):
+        seen["prefer"] = prefer
+        return reformat.pick_face([[guest, host]] * 4, prefer)
+
+    monkeypatch.setattr(zoom, "face_center", fake_face_center)
+
+    class P:
+        def abs(self, p):
+            return p
+
+    c = {"media": "ep.mp4", "in": 0, "out": 2, "crop": {"x": 300, "y": 0, "w": 606, "h": 1080}}
+    x, _ = zoom._focus(P(), c, {"width": 1920, "height": 1080})
+    assert seen["prefer"] == pytest.approx((300 + 303) / 1920)
+    assert x == pytest.approx((0.28 * 1920 - 300) / 606, abs=1e-3)
+
+
+def test_captions_change_exactly_at_cuts():
+    """The user's rule (2026-10-21): a caption ends when its clip ends. The 0.25 s hold ran "de milhões."
+    5 frames into the next shot; zoom cuts and camera switches fell inside captions."""
+    w = lambda t, a, b: {"word": t, "start": a, "end": b}
+    lines = [
+        {"start": 1.5, "end": 2.15, "words": [w("de", 1.5, 1.6), w("milhões.", 1.6, 2.05)]},     # hold over 2.1
+        {"start": 2.15, "end": 3.3, "words": [w("Agora", 2.15, 2.5), w("você", 2.5, 2.9), w("tem,", 2.9, 3.3)]},
+        {"start": 4.76, "end": 5.6, "words": [w("do", 4.76, 4.9), w("filho", 4.9, 5.6)]},          # starts 0.04 early
+        {"start": 7.0, "end": 7.9, "words": [w("vaidade.", 7.0, 7.85)]},                           # 0.05 s tail
+    ]
+    out = subtitles.fit_to_cuts(lines, [2.1, 2.8, 4.8, 7.85])
+    spans = [(l["start"], l["end"], " ".join(x["word"] for x in l["words"])) for l in out]
+    assert spans == [(1.5, 2.1, "de milhões."), (2.15, 2.8, "Agora você"), (2.8, 3.3, "tem,"),
+                     (4.8, 5.6, "do filho"), (7.0, 7.85, "vaidade.")]
+    assert all(l["start"] <= x["start"] <= x["end"] <= l["end"] for l in out for x in l["words"])
+    for k in [2.1, 2.8, 4.8, 7.85]:
+        assert not any(l["start"] + 1e-3 < k < l["end"] - 1e-3 for l in out)

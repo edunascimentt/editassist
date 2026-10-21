@@ -9,6 +9,7 @@ from .ingest import media_by_id
 from .media import run
 from .project import Project, read_json
 from .render import PRESETS
+from .subtitles import cut_points
 from .transcribe import heard_start, words
 
 
@@ -73,8 +74,13 @@ def check(project: Project, render_path: str | None = None, preset: str | None =
                 add("warn", f"A1 cut {edge} at timeline {c['start'] if edge == 'in' else T.end(c):.2f}s "
                             f"splits the word {w['word']!r} ({w['start']:.2f}-{w['end']:.2f} in source)")
     caps = (T.captions(project, tl) or {}).get("lines", [])
+    cuts = cut_points(tl)
     for l in caps:
         text = " ".join(w["word"] for w in l["words"])
+        over = next((k for k in cuts if l["start"] + 1 / 240 < k < l["end"] - 1 / 240), None)
+        if over is not None:  # the user's rule: a caption changes with the clip (2026-10-21)
+            add("warn", f"caption runs over the cut at {over:.2f}s: {text!r} ({l['start']:.2f}-{l['end']:.2f}); "
+                        f"re-run `ea subtitles`")
         if l["end"] - l["start"] < 0.3:
             add("info", f"caption on screen < 0.3s at {l['start']:.2f}s: {text!r}")
         if len(text) > 42:

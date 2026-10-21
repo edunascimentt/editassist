@@ -8,11 +8,14 @@ from .reformat import face_center
 
 def _focus(project: Project, c: dict, m: dict) -> tuple[float, float]:
     """Face position as 0..1 of the FITTED frame (accounts for an existing crop)."""
-    fc = face_center(str(project.abs(c["media"])), c["in"], c["out"], samples=4)
+    crop = c.get("crop")
+    # the face already framed by the crop, not the biggest one: in a podcast wide the host nearer the
+    # camera pulled the punch-in off the guest the vertical crop was aimed at (2026-10-21)
+    near = (crop["x"] + crop["w"] / 2) / m["width"] if crop else None
+    fc = face_center(str(project.abs(c["media"])), c["in"], c["out"], samples=4, prefer=near)
     if not fc:
         return 0.5, 0.4
     x, y = fc[0] * m["width"], fc[1] * m["height"]
-    crop = c.get("crop")
     if crop:
         x, y = (x - crop["x"]) / crop["w"], (y - crop["y"]) / crop["h"]
     else:

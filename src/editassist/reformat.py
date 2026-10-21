@@ -20,7 +20,7 @@ YUNET = ROOT / "assets" / "models" / "face_detection_yunet_2023mar.onnx"
 
 
 def face_center(path: str, t0: float, t1: float, samples: int = 8,
-                prefer: str | None = None) -> tuple[float, float] | None:
+                prefer: str | float | None = None) -> tuple[float, float] | None:
     """Face centre (0..1) over a time range, or None if no face found. `prefer` = left|right: in shots
     with several faces take the one on that side (where the podcast guest sits) instead of the biggest.
     YuNet (bundled ONNX, MIT) via cv2.FaceDetectorYN: works on OpenCV 4.5.4+ and 5.x."""
@@ -49,7 +49,7 @@ def face_center(path: str, t0: float, t1: float, samples: int = 8,
     return pick_face(found, prefer)
 
 
-def pick_face(samples: list[list[tuple[float, float, float]]], prefer: str | None = None,
+def pick_face(samples: list[list[tuple[float, float, float]]], prefer: str | float | None = None,
               same: float = 0.08) -> tuple[float, float] | None:
     """One face position from per-frame detections [(cx, cy, area), ...]. Each frame votes for one face
     (the biggest, or the one on the `prefer` side when several are in frame); the votes are grouped by
@@ -60,7 +60,9 @@ def pick_face(samples: list[list[tuple[float, float, float]]], prefer: str | Non
     for faces in samples:
         if not faces:
             continue
-        if prefer in ("left", "right") and len(faces) > 1:
+        if isinstance(prefer, (int, float)) and len(faces) > 1:  # x 0..1: the face nearest it
+            f = min(faces, key=lambda f: abs(f[0] - prefer))
+        elif prefer in ("left", "right") and len(faces) > 1:
             f = (min if prefer == "left" else max)(faces, key=lambda f: f[0])
         else:
             f = max(faces, key=lambda f: f[2])
