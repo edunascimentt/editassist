@@ -9,6 +9,8 @@ export type CountdownProps = {
   kicker?: string;       // small word on the card, above the number ("FALTAM")
   from?: number;         // first number shown (the card rolls down from it)
   to: number;            // the number it lands on
+  last?: string;         // text on the landing face instead of `to` ("HO\nJE"); \n breaks lines, sized to fit
+  lastKicker?: string;   // kicker on the landing face only ("FALTA" for 1, "É" for today)
   lines?: string[];      // handwritten text under the card
   paper?: string;        // background colour
   ink?: string;          // card, string and text colour
@@ -70,7 +72,7 @@ const Mark: React.FC<{ kind: "under" | "circle"; p: number; ink: string; u: numb
 };
 
 export const Countdown: React.FC<CountdownProps> = ({
-  kicker = "FALTAM", from, to, lines = [], paper = "#D1D5E0", ink = "#203055", digit, tag, symbol, logo,
+  kicker = "FALTAM", from, to, last, lastKicker, lines = [], paper = "#D1D5E0", ink = "#203055", digit, tag, symbol, logo,
 }) => {
   const frame = useCurrentFrame();
   const { fps, width, height, durationInFrames } = useVideoConfig();
@@ -95,19 +97,33 @@ export const Countdown: React.FC<CountdownProps> = ({
 
   // which numbers are on which half right now
   const cur = fl.find((f) => t >= f.t0 && t < f.t1);
-  const shown = t < (fl[0]?.t0 ?? 0) ? start : cur ? cur.a : to;
+  // between flips (the pause before the last one) hold the number the previous flip landed on
+  const prev = fl.filter((f) => t >= f.t1).pop();
+  const shown = cur ? cur.a : prev ? prev.b : start;
   const p = cur ? ease(interpolate(t, [cur.t0, cur.t1], [0, 1], clamp)) : 0;
 
-  const face = (n: number) => (
-    <div style={{ position: "absolute", left: 0, top: 0, width: cw, height: ch, display: "flex",
-                  flexDirection: "column", alignItems: "center" }}>
-      <div style={{ position: "absolute", top: 46 * u, width: "100%", textAlign: "center", fontFamily: FONT,
-                    fontWeight: 700, fontSize: 50 * u, letterSpacing: 2 * u, color: "#FFFFFF" }}>{kicker}</div>
-      <div style={{ position: "absolute", top: 66 * u, width: "100%", textAlign: "center", fontFamily: FONT,
-                    fontWeight: 900, fontSize: 680 * u, lineHeight: `${ch - 66 * u}px`, color: num,
-                    textShadow: `0 ${8 * u}px ${14 * u}px rgba(0,0,0,.28)` }}>{n}</div>
-    </div>
-  );
+  // landing text: Montserrat Black averages ~0.8 em per capital, so fit the longest line to the card
+  const lastLines = last ? last.split("\n") : [];
+  const lastSize = Math.min(680 * u, (cw * 0.88) / (0.8 * Math.max(...lastLines.map((l) => l.length), 1)),
+                            (ch - 120 * u) / Math.max(lastLines.length, 1));
+  const face = (n: number) => {
+    const end = n === to;
+    const text = end && last ? lastLines : [String(n)];
+    const size = end && last ? lastSize : 680 * u;
+    return (
+      <div style={{ position: "absolute", left: 0, top: 0, width: cw, height: ch, display: "flex",
+                    flexDirection: "column", alignItems: "center" }}>
+        <div style={{ position: "absolute", top: 46 * u, width: "100%", textAlign: "center", fontFamily: FONT,
+                      fontWeight: 700, fontSize: 50 * u, letterSpacing: 2 * u, color: "#FFFFFF" }}>
+          {end && lastKicker ? lastKicker : kicker}</div>
+        <div style={{ position: "absolute", top: 66 * u, width: "100%", height: ch - 66 * u, display: "flex",
+                      flexDirection: "column", justifyContent: "center", alignItems: "center", fontFamily: FONT,
+                      fontWeight: 900, fontSize: size, lineHeight: text.length > 1 ? 1.0 : `${ch - 66 * u}px`,
+                      color: num, textShadow: `0 ${8 * u}px ${14 * u}px rgba(0,0,0,.28)` }}>
+          {text.map((l, i) => <div key={i}>{l}</div>)}</div>
+      </div>
+    );
+  };
   const half = (n: number, top: boolean, style: React.CSSProperties = {}, shade = 0) => (
     <div style={{ position: "absolute", left: 0, top: top ? 0 : ch / 2 + gap / 2, width: cw, height: ch / 2 - gap / 2,
                   overflow: "hidden", background: ink, borderRadius: r, backfaceVisibility: "hidden", ...style }}>
