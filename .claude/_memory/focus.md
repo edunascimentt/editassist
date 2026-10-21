@@ -50,3 +50,10 @@
 - `learn-edit` skill: read the live Resolve/Premiere timeline the editor just finished (or corrected), list what was done/changed, ask which tier to save it to. New team rule: every project passes through the AI before export.
 - Independent reviewer subagent (`.claude/agents/reviewer.md`, fresh context): `ea qa`, a second transcription with another model to flag caption text errors, and an approval model built from each reviewer's criteria (agreement = standard, disagreement = taste/options).
 - Memory history: "edit the line" rules lose what was removed and when; the team expects a dated history.
+
+- (2026-10-20) `ea resolve-style <template> --from <styled .drp/.drt or timeline>`: automate the subtitle-style transplant done by hand for a podcast client's cortes (facts.md 2026-10-20), so a new client project gets the user's caption style without restyling.
+- (2026-10-20) Captions from long podcast transcripts: Whisper loses punctuation in long stretches; want `ea transcript <p> --punct <bites>` (or a `--lines`-from-text helper) that re-punctuates chosen bites keeping word times, instead of a scratch script. Also capitalise the first caption of a video when the bite starts mid-sentence ("gaste menos" -> "Gaste").
+- (2026-10-20) Captions sit at a fixed track Y (58 %): in a podcast wide two-shot the guest's head is lower and the line crosses his face for a few seconds; consider a per-shot check in `ea qa` (face box vs caption band).
+- (2026-10-20) `ea level` should target the bed level AFTER ducking (measure the ducked stem, or know the duck depth) so a ducked bed sits at -30 under speech instead of -36..-41.
+- (2026-10-21) `ea timeline <p> retrim <ranges>`: rebuild A1/V1 of a built (reformatted) timeline from new source ranges, keeping each shot's crop, filling dropped pauses with the shot before, J-cut leads, and re-fitting the music bed to a downbeat so its end still lands on the video end. Done with a scratch script to fix 3 podcast cortes.
+- (2026-10-21) A second-model caption check (large-v3 on the low-probability words of the chosen bites) as an `ea qa --captions` step: it caught 2 of 3 caption text errors on the podcast cortes.
