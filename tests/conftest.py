@@ -60,6 +60,12 @@ def fake_transcript(sid: str, words=WORDS, offset: float = 0.0) -> dict:
     return {"media": sid, "language": "pt", "model": "fake", "segments": segs}
 
 
+@pytest.fixture(autouse=True)
+def _no_projects_dir(monkeypatch):
+    """Ignore the machine's EA_PROJECTS_DIR (.env): tests write projects under the patched P.PROJECTS."""
+    monkeypatch.setenv("EA_PROJECTS_DIR", "")
+
+
 @pytest.fixture()
 def project(tmp_path, media_dir, monkeypatch):
     import editassist.project as P

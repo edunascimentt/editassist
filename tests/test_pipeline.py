@@ -1760,3 +1760,43 @@ def test_render_keeps_true_peak_after_aac_overshoot(tmp_path):
                     "-shortest", "-c:a", "aac", "-b:a", "192k", "-c:v", "libx264", str(f)], check=True)
     trim_loudness(f, -14, -1.0)
     assert measure(f)[1] <= -1.0
+
+
+def test_projects_dir_from_env(tmp_path, monkeypatch):
+    """The user wants projects saved on the Desktop (2026-10-23, "salvar os projetos no desktop,
+    sempre"): EA_PROJECTS_DIR (environment or .env) is where `ea new` creates them, and projects
+    made before it was set are still found in <repo>/projects."""
+    import editassist.project as P
+    from editassist import clients
+
+    legacy = tmp_path / "repo-projects"
+    monkeypatch.setattr(P, "PROJECTS", legacy)
+    monkeypatch.setenv("EA_MEMORY_DIR", str(tmp_path / "mem"))
+    old = P.Project.create("antigo")
+    assert old.dir == legacy / "antigo"
+
+    desk = tmp_path / "Desktop" / "editassist"
+    monkeypatch.setenv("EA_PROJECTS_DIR", str(desk))
+    new = P.Project.create("novo")
+    assert new.dir == desk / "novo" and (desk / "novo" / "input").is_dir()
+    assert P.Project("novo").dir == desk / "novo"
+    assert P.Project("antigo").dir == legacy / "antigo"
+
+    clients.assign(new, "Ana Souza")
+    clients.assign(old, "Ana Souza")
+    assert clients.client_of("novo") == "ana-souza"
+    listed = {c["client"]: c["projects"] for c in clients.listing()["clients"]}
+    assert sorted(listed["ana-souza"]) == ["antigo", "novo"]
+
+    (desk / "antigo").parent.mkdir(parents=True, exist_ok=True)  # moved to the Desktop, link left behind
+    (legacy / "antigo").rename(desk / "antigo")
+    (legacy / "antigo").symlink_to(desk / "antigo", target_is_directory=True)
+    assert P.Project("antigo").dir == desk / "antigo"
+    listed = {c["client"]: c["projects"] for c in clients.listing()["clients"]}
+    assert sorted(listed["ana-souza"]) == ["antigo", "novo"]
+
+    monkeypatch.delenv("EA_PROJECTS_DIR")  # read from the repo's .env when not in the environment
+    env = tmp_path / ".env"
+    env.write_text(f"EA_PROJECTS_DIR={desk}\n", encoding="utf-8")
+    monkeypatch.setattr(P, "ROOT", tmp_path)
+    assert P.projects_dir() == desk

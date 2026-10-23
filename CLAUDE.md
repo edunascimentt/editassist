@@ -23,7 +23,7 @@ user prompt + media ──► you (Claude Code / Codex) ──► skills (recipe
    Client work: `uv run ea client show <p>` lists the files to read in order; the client's
    `clients/<client>/preferences.md` overrides the general file on that client's projects.
 2. **Find or create the project**: `uv run ea new <name> [--client "<Client Name>"]` makes
-   `projects/<name>/`; the user drops media into `projects/<name>/input/`. Never modify files in
+   `<projects>/<name>/` (`EA_PROJECTS_DIR` in `.env`, else `projects/`; the JSON prints the path); the user drops media into `projects/<name>/input/`. Never modify files in
    `input/`. A video for a client always gets its client (ask when you can't tell whose it is).
 3. **Pick skills** for the request and follow them (each `SKILL.md` lists its commands and checks).
    Typical order: ingest → transcribe (→ speakers / multicam when several people, cameras or

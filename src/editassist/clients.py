@@ -72,7 +72,11 @@ def client_of(project: str | Project | None) -> str | None:
     if project is None:
         return None
     name = project.name if isinstance(project, Project) else str(project)
-    cfg = (project.dir if isinstance(project, Project) else P.PROJECTS / name) / "project.json"
+    if isinstance(project, Project):
+        cfg = project.dir / "project.json"
+    else:
+        cfg = next((d / name / "project.json" for d in P.project_dirs() if (d / name).is_dir()),
+                   P.projects_dir() / name / "project.json")
     explicit = (read_json(cfg, {}) or {}).get("client")
     if explicit:
         return client_slug(explicit)
@@ -111,9 +115,14 @@ def show(project: Project) -> dict:
 
 
 def listing() -> dict:
-    projects = {}
-    if P.PROJECTS.is_dir():
-        for d in sorted(P.PROJECTS.iterdir()):
+    projects, seen = {}, set()
+    for root in P.project_dirs():
+        if not root.is_dir():
+            continue
+        for d in sorted(root.iterdir()):
+            if d.resolve() in seen:  # <repo>/projects/<name> left as a link to the moved project
+                continue
+            seen.add(d.resolve())
             if (d / "project.json").exists():
                 c = client_of(Project(str(d)))
                 if c:

@@ -1,6 +1,6 @@
 """Project layout on disk.
 
-projects/<name>/
+<projects>/<name>/   <projects> = projects_dir(): EA_PROJECTS_DIR (env or .env), else <repo>/projects
   project.json      settings: fps, resolution, language, target platform
   input/            raw media dropped by the user (never modified)
   work/             everything derived: media.json, transcripts/, scenes/, frames/, audio/
@@ -16,6 +16,27 @@ ROOT = Path(__file__).resolve().parents[2]
 PROJECTS = ROOT / "projects"
 LOCAL_MEMORY = ROOT / "memory"
 MEMORY_OS = ROOT / "vendor" / "memory-os"  # memory-os ships with the repo (upstream github.com/edunascimentt/memory-os)
+
+
+def projects_dir() -> Path:
+    """Where `ea new` puts projects: EA_PROJECTS_DIR from the environment or the repo's .env
+    (per machine, e.g. ~/Desktop/editassist), else <repo>/projects. Set but empty = the default."""
+    import os
+
+    if "EA_PROJECTS_DIR" in os.environ:
+        v = os.environ["EA_PROJECTS_DIR"]
+    else:
+        from dotenv import dotenv_values
+
+        env = ROOT / ".env"
+        v = dotenv_values(env).get("EA_PROJECTS_DIR") if env.exists() else None
+    return Path(v).expanduser() if v else PROJECTS
+
+
+def project_dirs() -> list[Path]:
+    """Folders projects are looked up in: the configured one first, then <repo>/projects
+    (projects made before EA_PROJECTS_DIR was set stay where they are)."""
+    return list(dict.fromkeys([projects_dir(), PROJECTS]))
 
 
 def memory_dir() -> Path:
@@ -134,13 +155,17 @@ def media_kind(path: Path) -> str | None:
 class Project:
     def __init__(self, name_or_path: str):
         p = Path(name_or_path)
-        self.dir = p.resolve() if p.exists() and p.is_dir() else PROJECTS / name_or_path
+        if p.exists() and p.is_dir():
+            self.dir = p.resolve()
+        else:
+            found = [d / name_or_path for d in project_dirs() if (d / name_or_path).is_dir()]
+            self.dir = found[0] if found else projects_dir() / name_or_path
         if not self.dir.exists():
             raise SystemExit(f"project not found: {self.dir} (create it with `ea new <name>`)")
 
     @classmethod
     def create(cls, name: str, **settings) -> "Project":
-        d = PROJECTS / name
+        d = projects_dir() / name
         for sub in ("input", "work", "output"):
             (d / sub).mkdir(parents=True, exist_ok=True)
         cfg = d / "project.json"
