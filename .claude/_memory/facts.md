@@ -12,6 +12,7 @@
 - One module per command group in `src/editassist/`; `cli.py` wires them. `videofx.py` = per-clip video filter chain shared by render and bake.
 - Skills: `.claude/skills/<name>/SKILL.md` (35 on 2026-10-13, with premiere-live). Codex reads the same via `AGENTS.md`.
 - Bundled assets: `assets/fonts/` (Montserrat, OFL) and `assets/models/face_detection_yunet_2023mar.onnx` (MIT). Captions/thumbnails depend on them; don't swap for system fonts.
+- Projects root: `project.projects_dir()` = `EA_PROJECTS_DIR` (env, else repo `.env`; empty = default), else `<repo>/projects`; lookup also falls back to `<repo>/projects` (`project_dirs()`); a project moved out of `<repo>/projects` keeps a symlink there (NLE projects and .otio/.fcpxml store absolute paths), `clients.listing` dedupes by resolved path; tests force `EA_PROJECTS_DIR=""` (conftest autouse) so a machine's `.env` never makes them write outside tmp (2026-10-23)
 - Per-project data: `projects/<name>/{input,work,output}` + `timeline.json`; `work/media.json` is the media catalog every command reads.
 - memory-os lives in `vendor/memory-os/` (upstream commit ba838aa, 2026-10-05); `ea memory --install` copies it to `~/.memory-os` (leaves a git clone alone); CI runs its `check` on `.claude/_memory/`.
 - Editing memory (user taste) is NOT in this repo: `uv run ea memory` prints its folder (memory-os global tier, else gitignored `memory/`).
