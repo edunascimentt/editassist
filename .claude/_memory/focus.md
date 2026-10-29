@@ -20,6 +20,8 @@
 - `ea qa --shots` (or `ea scenes --timeline`): one frame from the middle of every V1 shot of a render on one sheet. Done with a scratch script on the 15-anos recap (2026-10-14); it caught a shot where the phone had panned to a white wall.
 - resolve_native: fades/dissolves on overlay tracks could be baked as alpha .mov (ProRes 4444 + fade alpha) instead of only reported, since 21.0 has no SetFades/AddKeyframe.
 
+- `ea sync --map/--build`: fit clock drift per piece (shift + rate) and split long pieces where it passes half a frame; today one median shift per piece (~40 ms at the ends of a 35-min piece, 2026-10-29). Also `--build` for every camera in one call.
+
 ## Premiere live bridge (built + verified on macOS Premiere 26.3.2, 2026-10-13)
 - 2026-10-13 full pass: every MCP tool and edit action driven over stdio against live Premiere (90/90 checks), a build with LUT, vertical crop, Warp Stabilizer, push-in, dips, still, speed, captions, ducking and one-channel voice compared frame by frame and by audio level with `ea render`, `premiere_export`, new/open project, `--current`.
 - Still unverified: Windows (no Windows machine or VM here; code reviewed and Windows paths/encodings unit-tested only), the MCP inside a real Claude session (stdio driven by a script, same protocol), Premiere with "Scale to frame size" on (pref read + math unit-tested only), anamorphic (non-square pixel) media: `ea render` ignores SAR, Premiere honours it.
