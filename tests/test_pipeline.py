@@ -1800,3 +1800,60 @@ def test_projects_dir_from_env(tmp_path, monkeypatch):
     env.write_text(f"EA_PROJECTS_DIR={desk}\n", encoding="utf-8")
     monkeypatch.setattr(P, "ROOT", tmp_path)
     assert P.projects_dir() == desk
+
+
+def test_sync_map_finds_recorder_dropouts(project):
+    """A mixer that drops samples gets shorter instead of silent: one offset only fits until the
+    first drop. --map must find each drop (and not be fooled by circular-correlation wraps)."""
+    import wave
+
+    import numpy as np
+
+    from editassist.project import read_json, write_json
+    from editassist.sync import RATE, drift_map
+
+    rng = np.random.default_rng(7)
+    n = 150 * RATE
+    env = np.repeat(rng.uniform(0.05, 1, n // 800 + 1), 800)[:n]  # syllable-ish loudness changes
+    cam = (rng.standard_normal(n) * env * 0.2).astype(np.float32)
+    s = lambda t: int(t * RATE)  # noqa: E731
+    mix = np.concatenate([cam[s(10):s(60)], cam[s(62.5):s(100)], cam[s(104):s(140)]])  # 2.5 s, 4 s lost
+    cat = read_json(project.path("work", "media.json"))
+    for sid, x in (("cam_wide", cam), ("mixer", mix)):
+        f = project.path("work", "audio", f"{sid}.wav")
+        with wave.open(str(f), "wb") as w:
+            w.setnchannels(1), w.setsampwidth(2), w.setframerate(RATE)
+            w.writeframes((x * 32767).astype(np.int16).tobytes())
+        cat[sid] = {"path": f"input/{sid}.wav", "analysis_audio": f"work/audio/{sid}.wav", "duration": len(x) / RATE}
+    write_json(project.path("work", "media.json"), cat)
+
+    r = drift_map(project, "cam_wide", "mixer")
+    assert [round(g["shift"], 2) for g in r["segments"]] == [10.0, 12.5, 16.5]
+    assert [g["missing"] for g in r["gaps"]] == pytest.approx([2.5, 4.0], abs=0.01)
+    assert [g["ref_from"] for g in r["gaps"]] == pytest.approx([60, 100], abs=0.3)
+    assert r["overlaps"] == []
+
+
+def test_sync_build_from_map_keeps_lips_in_sync_across_drops(project):
+    """--build places each kept recorder range on the camera at the same moment, so the picture
+    skips the camera time the recorder lost; a range across a drop is refused."""
+    from editassist.project import read_json, write_json
+    from editassist.sync import build_from_map
+
+    cat = read_json(project.path("work", "media.json"))
+    for sid in ("cam_wide", "cam_close", "mixer"):
+        cat[sid] = {"path": f"input/{sid}.mp4", "duration": 200.0}
+    write_json(project.path("work", "media.json"), cat)
+    segs = [{"other_in": 0, "other_out": 50, "shift": 10.0}, {"other_in": 50, "other_out": 90, "shift": 12.5}]
+    write_json(project.path("work", "sync_map", "mixer__cam_wide.json"), {"ref": "cam_wide", "other": "mixer", "segments": segs})
+    write_json(project.path("work", "sync_map", "cam_close__cam_wide.json"),
+               {"ref": "cam_wide", "other": "cam_close", "segments": [{"other_in": 0, "other_out": 200, "shift": -3.0}]})
+
+    r = build_from_map(project, "cam_wide", "mixer", "cam_close", [(5, 48), (52, 80)])
+    tl = T.load(project)
+    v, a = (T.track(tl, n)["clips"] for n in ("V1", "A1"))
+    assert r["duration"] == pytest.approx(71)
+    assert [(c["in"], c["start"]) for c in a] == [(5, 0), (52, 43)]
+    assert [c["in"] for c in v] == pytest.approx([18, 67.5])  # mixer + shift on wide, + 3 s on close
+    with pytest.raises(SystemExit):
+        build_from_map(project, "cam_wide", "mixer", "cam_close", [(40, 60)])

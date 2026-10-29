@@ -279,6 +279,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("others", nargs="*", help="media ids to align to --ref")
     p.add_argument("--swap-audio", nargs=2, metavar=("FROM", "TO"), help="replace A1 dialogue from FROM with synced TO")
     p.add_argument("--switch", nargs=3, metavar=("T0", "T1", "CAMERA"), help="show CAMERA on timeline [T0, T1)")
+    p.add_argument("--map", action="store_true", help="find where each of OTHERS lost audio against --ref (recorder dropouts)")
+    p.add_argument("--build", nargs=2, metavar=("RECORDER", "CAMERA"), help="timeline.json of CAMERA under RECORDER's audio (needs --map of both on --ref)")
+    p.add_argument("--keep", nargs="+", metavar="T0-T1", help="with --build: recorder ranges to keep, each inside one piece of its map")
+    p.add_argument("--name", help="with --build: timeline name")
 
     p = sub.add_parser("diarize", help="who speaks when: per-mic tracks or automatic (pyannote extra)")
     p.add_argument("project"); p.add_argument("media", help="transcribed media id")
@@ -559,6 +563,11 @@ def main(argv: list[str] | None = None) -> None:
             out(sy.swap_audio(pr, *a.swap_audio))
         elif a.switch:
             out(sy.switch(pr, float(a.switch[0]), float(a.switch[1]), a.switch[2]))
+        elif a.build and a.ref and a.keep:
+            keep = [tuple(float(x) for x in k.split("-", 1)) for k in a.keep]
+            out(sy.build_from_map(pr, a.ref, a.build[0], a.build[1], keep, a.name))
+        elif a.map and a.ref and a.others:
+            out({o: sy.drift_map(pr, a.ref, o) for o in a.others})
         elif a.ref and a.others:
             out(sy.sync(pr, a.ref, a.others))
         else:

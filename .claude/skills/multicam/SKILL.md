@@ -8,6 +8,14 @@ description: Sync several cameras and external microphones by sound, replace cam
 2. `uv run ea sync <p> --ref cam_a cam_b mic_1 [mic_2]` writes the offsets to `work/sync.json`.
    Confidence below 5 means the result is unreliable: tell the user, check for a clap, or trim
    very long silences.
+   **Recorder lost audio** (a desk/recorder that ends shorter than it should, sync fine at the start but
+   drifting off later): `uv run ea sync <p> --map --ref <camera> <recorder>` finds every dropout
+   (constant-shift pieces + gaps, work/sync_map/). Map the exact file you'll use: each track of a
+   multitrack desk can drop at different places. Map each other camera on the same ref too
+   (`--map --ref <camera> <cam_b> ...`, one piece each). Then cut out the whole sentence around every
+   seam (pick cut points in real pauses; `ea qa` flags split words) and build each camera:
+   `uv run ea sync <p> --ref <camera> --build <recorder> <cam_x> --keep a-b c-d ...` (recorder seconds,
+   each range inside one piece), `ea timeline <p> save <cam_x>`. Every camera gets the same timing.
 3. Transcribe the reference camera (or the cleanest mic: transcription is better on the mic), and
    cut as usual (rough-cut / silence-cut) on that media.
 4. Clean audio: `uv run ea sync <p> --swap-audio cam_a mic_1`. Every A1 clip cut from cam_a now plays the same
