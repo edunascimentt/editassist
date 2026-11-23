@@ -1,7 +1,8 @@
 """bake: render per-clip changes that NLE exchange formats don't carry reliably (crop, zoom,
 constant speed, optionally colour) into new files under work/baked/, and repoint the timeline at
 them. Baked clips are plain cuts of plain files, so they look and time identically in Resolve,
-Premiere, After Effects and Final Cut. Transitions are not baked: dissolves export natively."""
+Premiere, After Effects and Final Cut. Dissolves export natively and are not baked; fades from/to
+black are (Resolve 21.0 scripting has no SetFades), on video clips."""
 from __future__ import annotations
 
 import hashlib
@@ -13,6 +14,13 @@ from .project import Project, read_json, write_json
 from .videofx import clip_vfilter, media_grade
 
 PICTURE_KEYS = ("crop", "zoom", "stabilize", "whip")
+FADE_SIDES = (("transition_in", "fade_in"), ("transition_out", "fade_out"))
+
+
+def _fades(c: dict) -> dict:
+    """{"fade_in"/"fade_out": seconds} for the clip's fade-from/to-black transitions."""
+    return {key: float(c[side].get("dur", 1.0)) for side, key in FADE_SIDES
+            if (c.get(side) or {}).get("type") == "fade"}
 
 
 def atempo_chain(sp: float) -> str:
@@ -33,6 +41,9 @@ def bake(project: Project, color: bool = False, handles: float = 1.0, to: str | 
     """`to`: write the files there (e.g. next to the client's media, so the NLE project does not depend
     on this repo's folder) instead of work/baked; the timeline then points at absolute paths."""
     tl = T.load(project)
+    # a hand-written `input/<link>.mp4` (symlink) matched nothing in the catalog and its fade was
+    # silently left unbaked: "baked 0" (DOMCast cold open, 2026-11-18)
+    T.normalize_media(project, tl)
     catalog = read_json(project.path("work", "media.json"), {}) or {}
     by_path = {m["path"]: m for m in catalog.values()}
     grades = media_grade(project)
@@ -51,7 +62,7 @@ def bake(project: Project, color: bool = False, handles: float = 1.0, to: str | 
             sp = float(c.get("speed", 1.0))
             video = tr["kind"] == "video" and m.get("kind") == "video"
             grade = (c.get("color") or grades.get(c["media"])) if (color and video) else None
-            picture = video and any(k in c for k in PICTURE_KEYS)
+            picture = video and (any(k in c for k in PICTURE_KEYS) or bool(_fades(c)))
             if not (picture or grade or sp != 1.0):
                 continue
             new = bake_clip(project, c, m, video, grade, W, H, fps, out_dir, handles, grades, catalog, by_path)
@@ -71,6 +82,8 @@ def bake_clip(project: Project, c: dict, m: dict, video: bool, grade: dict | Non
     b = min(m["duration"], c["out"] + handles * sp)
     head = (c["in"] - a) / sp  # record seconds of handle before the clip
     look = {k: c.get(k) for k in PICTURE_KEYS if video and c.get(k)}
+    if video:
+        look.update(_fades(c))
     if grade:
         look["color"] = grade
     ext = ".mp4" if video else ".wav"
@@ -93,6 +106,10 @@ def bake_clip(project: Project, c: dict, m: dict, video: bool, grade: dict | Non
     d = T.dur(c)
     for k in PICTURE_KEYS + ("speed",):
         c.pop(k, None)
+    for side, key in FADE_SIDES:
+        if key in look:
+            c["source"].pop(key, None)
+            c["source"][side] = c.pop(side)
     if grade:
         c.pop("color", None)
         c["graded"] = True

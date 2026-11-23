@@ -16,10 +16,11 @@
 - `ea subtitles` drops a word whose Whisper start is before the clip `in` even when most of the audible word is inside ("Todos" 0.56-1.08, in 0.917, cut by the user in Resolve); added back via `--lines`. Consider keeping head words whose end lands >= ~0.15 s into the clip.
 
 - Podcast episode assembly in Resolve was done by hand through the MCP (2026-10-10, a podcast client: 8 timelines): want `ea podcast <p> --intro <file> --overlap 0.5` that writes the trimmed episode (and multi-file joins, e.g. a part-2 opener from a second file) as timeline.json with the intro on V2/A2, bakes the intro fade as an alpha .mov, and builds it via resolve_native (with set_current_folder before each create).
-- resolve_native: V1 dissolves and the end fade are reported, not placed (21.0 has no transition API): the 15-anos recap (2026-10-13) needed 3 dissolves + a fade added by hand. Bake them (render the overlap as one clip) so Resolve matches the preview.
+- resolve_native: V1 dissolves are reported, not placed (21.0 has no transition API): the 15-anos recap (2026-10-13) needed 3 dissolves added by hand. Bake them (render the overlap as one clip) so Resolve matches the preview. (Fades to/from black: baked since 2026-11-06.)
 - `ea qa --shots` (or `ea scenes --timeline`): one frame from the middle of every V1 shot of a render on one sheet. Done with a scratch script on the 15-anos recap (2026-10-14); it caught a shot where the phone had panned to a white wall.
 - resolve_native: fades/dissolves on overlay tracks could be baked as alpha .mov (ProRes 4444 + fade alpha) instead of only reported, since 21.0 has no SetFades/AddKeyframe.
 
+- Recovery after a deleted project (2026-11-06, done by hand with scratch scripts): store each derived file's recipe outside the project too: resolve_native should write `c["source"]` + look (zoom/whip/gain/fades) as JSON into the pool clip's Comments, and `ea recover <p>` should rebuild work/baked from those comments (fallback: frame-match against a render + Resolve .pfl peak caches, as done for the 15-anos job).
 - `ea sync --map/--build`: fit clock drift per piece (shift + rate) and split long pieces where it passes half a frame; today one median shift per piece (~40 ms at the ends of a 35-min piece, 2026-10-29). Also `--build` for every camera in one call.
 
 ## Premiere live bridge (built + verified on macOS Premiere 26.3.2, 2026-10-13)
@@ -59,3 +60,5 @@
 - (2026-10-20) `ea level` should target the bed level AFTER ducking (measure the ducked stem, or know the duck depth) so a ducked bed sits at -30 under speech instead of -36..-41.
 - (2026-10-21) `ea timeline <p> retrim <ranges>`: rebuild A1/V1 of a built (reformatted) timeline from new source ranges, keeping each shot's crop, filling dropped pauses with the shot before, J-cut leads, and re-fitting the music bed to a downbeat so its end still lands on the video end. Done with a scratch script to fix 3 podcast cortes.
 - (2026-10-21) A second-model caption check (large-v3 on the low-probability words of the chosen bites) as an `ea qa --captions` step: it caught 2 of 3 caption text errors on the podcast cortes.
+- (2026-11-18) `ea coldopen <p> --quotes q.json --bw <in> <out> --intro <file>`: the podcast cold-open recipe (facts.md 2026-11-18) is a builder script today; make it a command so each episode of a batch is one call. Also a 16:9 caption style for it (the user's styled templates are 9:16 cortes; the cold-open SRT lands in Resolve's default style).
+- (2026-11-18) resolve_native: place image stills (png/jpg) on overlay tracks with their timeline length (they are catalogued with duration 0 and were silently dropped; `ea qa` passed and the preview showed them). Until then wrap stills as alpha ProRes.

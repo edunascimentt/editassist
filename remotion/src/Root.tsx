@@ -57,7 +57,7 @@ export const Root: React.FC = () => (
       fps={30}
       width={1920}
       height={1080}
-      defaultProps={{ text: "Chapter title", kicker: "PART 1", accent: "#FFE500" } satisfies TitleProps & Frame}
+      defaultProps={{ text: "Chapter title", accent: "#FFE500" } satisfies TitleProps & Frame}
     />
     <Composition
       id="Countdown"

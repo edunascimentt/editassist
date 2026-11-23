@@ -353,6 +353,16 @@ def test_remotion_lower_third(project):
     assert project.path(r["path"]).exists()
 
 
+def test_title_has_no_default_kicker():
+    # Remotion merges defaultProps under the props `ea motion` passes: a default kicker ("PART 1")
+    # showed on every keyword title rendered without one (DOMCast cold open, 2026-11-18)
+    import re
+
+    root = (ROOT / "remotion" / "src" / "Root.tsx").read_text()
+    title = re.search(r'id="Title".*?defaultProps=\{(.*?)satisfies', root, re.S)
+    assert title and "kicker" not in title.group(1)
+
+
 def test_resolve_mcp_launcher_paths(monkeypatch, tmp_path):
     from editassist import resolve_mcp
 
@@ -1857,3 +1867,55 @@ def test_sync_build_from_map_keeps_lips_in_sync_across_drops(project):
     assert [c["in"] for c in v] == pytest.approx([18, 67.5])  # mixer + shift on wide, + 3 s on close
     with pytest.raises(SystemExit):
         build_from_map(project, "cam_wide", "mixer", "cam_close", [(40, 60)])
+
+
+def test_bake_carries_fade_to_black_into_the_clip(project):
+    """Resolve 21.0 has no SetFades: a fade to black at the end (ea transition --fade-out) was reported
+    'add by hand' after export (15-anos ROTEIRO v3, 2026-11-06). bake renders it into the clip, timed on
+    the visible part (not the handles), and drops the transition so no NLE applies it twice."""
+    from editassist.bake import bake
+
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 2.0, "out": 4.0}])
+    c = T.track(tl, "V1")["clips"][0]
+    c["zoom"] = {"scale": 1.1, "x": .5, "y": .5, "ramp": 2.0}
+    c["transition_out"] = {"type": "fade", "dur": 0.5}
+    T.save(project, tl)
+    bake(project)
+    c = T.track(T.load(project), "V1")["clips"][0]
+    assert "transition_out" not in c and c["source"]["transition_out"]["type"] == "fade"
+
+    def luma(t):
+        out = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.3f}", "-i", str(project.abs(c["media"])),
+                              "-frames:v", "1", "-vf", "scale=32:18,format=gray", "-f", "rawvideo", "-"],
+                             capture_output=True, check=True).stdout
+        return sum(out) / len(out)
+
+    assert luma(c["in"] + 1.0) > 40          # mid-clip: picture
+    assert luma(c["out"] - 0.04) < 15        # last visible frame: almost black (linear fade, 1 frame left)
+    assert luma(c["out"] + 0.2) < 3          # tail handle after the fade: black
+    assert luma(c["out"] - 0.6) > 0.8 * luma(c["in"] + 1.0)   # fade starts 0.5 s before the visible end
+
+
+def test_bake_finds_media_written_as_a_symlink_path(project):
+    import os
+    from editassist.bake import bake
+
+    os.symlink(project.path("input", "cam_a.mp4"), project.path("input", "link_a.mp4"))
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 2.0, "out": 4.0}])
+    c = T.track(tl, "V1")["clips"][0]
+    c["media"] = "input/link_a.mp4"  # how a timeline built by hand names the media
+    c["transition_out"] = {"type": "fade", "dur": 0.5}
+    T.save(project, tl)
+    assert bake(project)["baked"] >= 1
+    assert "baked" in T.track(T.load(project), "V1")["clips"][0]["media"]
+
+
+def test_bake_bakes_a_fade_only_clip(project):
+    from editassist.bake import bake
+
+    tl = T.from_segments(project, [{"media": "input/cam_a.mp4", "in": 2.0, "out": 4.0}])
+    T.track(tl, "V1")["clips"][0]["transition_in"] = {"type": "fade", "dur": 0.5}
+    T.save(project, tl)
+    assert bake(project)["baked"] >= 1
+    c = T.track(T.load(project), "V1")["clips"][0]
+    assert "transition_in" not in c and "baked" in c["media"]

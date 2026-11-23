@@ -101,7 +101,7 @@ def clip_vfilter(project: Project, c: dict, W: int, H: int, fps: float, t_offset
             r = rel_for_filter(project, project.abs(lut))
             if r:
                 f.append(f"lut3d=file='{r}'")
-    d = (c["out"] - c["in"]) / sp
+    d = vis  # the visible part: a baked segment's decoded length includes its handles
     if c.get("fade_in"):
         f.append(f"fade=t=in:st={t_offset:.3f}:d={c['fade_in']:.3f}")
     if c.get("fade_out"):
